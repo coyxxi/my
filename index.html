@@ -5,11 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="작업 공간">
-<meta name="theme-color" content="#EBEEE8">
+<meta name="theme-color" content="#FFFFFF" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#131922" media="(prefers-color-scheme: dark)">
 <title>나의 작업 공간</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600&family=Noto+Serif+KR:wght@500;600&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/pretendard@1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.css">
 <style>
 :root{--bg:#EBEEE8;--surface:#F6F7F3;--ink:#222824;--muted:#6A706A;--line:#D0D6CC;--accent:#3B5B4B;--on-accent:#FFFFFF;--soft:#DDE6DF;--accent2:#9A3B2A;--field:#F6F7F3;--font:"Noto Sans KR",system-ui,-apple-system,sans-serif;--head:"Noto Serif KR","Apple SD Gothic Neo",serif;--num:"Noto Serif KR",Georgia,serif;color-scheme:light}
 @media (prefers-color-scheme: dark){:root{--bg:#151917;--surface:#1C211E;--ink:#E3E6E0;--muted:#979D96;--line:#323A35;--accent:#8DB49F;--on-accent:#0F1A14;--soft:#22302A;--accent2:#D77A62;--field:#151917;color-scheme:dark}}
@@ -167,24 +167,6 @@ html[data-layout="c"] .nav{flex:none}
 html[data-layout="c"] .nav[aria-current="page"]{box-shadow:inset 0 -2px 0 var(--accent)}
 html[data-layout="c"] .nav.add{margin:0}
 html[data-layout="c"] .side .sp{margin:0 0 0 auto}
-@media (max-width:900px){.s7,.s5{grid-column:span 12}.blocks{grid-template-columns:1fr}}
-@media (max-width:760px){
-  .app,html[data-layout="c"] .app{grid-template-columns:1fr;grid-template-rows:none}
-  .side,html[data-layout="c"] .side{position:fixed;top:auto;bottom:0;left:0;right:0;height:auto;flex-direction:row;padding:4px 6px calc(4px + env(safe-area-inset-bottom,0px));border:0;border-top:1px solid var(--ink);background:var(--surface);z-index:10;overflow-x:auto}
-  .brand{display:none}
-  .nav{flex:none;padding:10px 12px;font-size:13px}
-  .nav[aria-current="page"],html[data-layout="c"] .nav[aria-current="page"]{box-shadow:inset 0 2px 0 var(--accent)}
-  .nav.add{margin:0}
-  .side .sp,html[data-layout="c"] .side .sp{margin:0}
-  main{padding-top:calc(16px + env(safe-area-inset-top,0px))}
-  .hero{flex-direction:column}
-  .hero-stub{align-items:flex-start;padding:0 0 18px}
-  .ms li{grid-template-columns:22px 1fr}
-  .ms li > :nth-child(n+3){grid-column:2}
-  .inline{flex-wrap:wrap}.inline input[type="date"]{flex:1}
-  .two{grid-template-columns:1fr}
-  .erow,.erow.chapf{grid-template-columns:1fr}
-}
 .tline{border-top:1px solid var(--ink);padding-top:12px;margin-bottom:26px}
 .segs{display:flex;overflow-x:auto}
 .seg2{all:unset;box-sizing:border-box;cursor:pointer;min-width:120px;padding:2px 10px 10px;border-left:1px solid var(--line);display:flex;flex-direction:column;gap:1px}
@@ -204,6 +186,145 @@ html[data-layout="c"] .side .sp{margin:0 0 0 auto}
 .grp{margin:14px 0 2px;font-size:13px;color:var(--accent);font-family:var(--head);font-weight:600}
 .grp:first-child{margin-top:0}
 @media (max-width:760px){.hero.rev{flex-direction:column}.hero.rev .hero-main{align-items:flex-start;text-align:left;padding:0 0 16px}.hero.rev .hero-stub{padding:18px 0 8px}}
+.tabbar,.fab{display:none}
+.sheet-list{display:flex;flex-direction:column}
+.sheet-item{all:unset;box-sizing:border-box;cursor:pointer;display:flex;align-items:baseline;gap:10px;padding:14px 2px;border-top:1px solid var(--line);font-size:16px}
+.sheet-item:first-child{border-top:0}
+.sheet-item .jp{font-family:var(--head);color:var(--accent);font-size:13px;letter-spacing:.15em}
+.sheet-item[aria-current="page"]{color:var(--accent);font-weight:500}
+@media (min-width:761px) and (max-width:1180px){
+  .app{grid-template-columns:172px minmax(0,1fr)}
+  .side{padding:22px 10px}
+  main{padding:20px 24px 60px}
+  .grid{gap:20px 22px}
+}
+@media (min-width:761px) and (max-width:1023px){.blocks{grid-template-columns:1fr}}
+@media (pointer:coarse){
+  .nav{padding:11px 10px}
+  .todo{min-height:50px}
+  .icon{padding:8px 9px}
+  .chip{padding:5px 11px}
+  .day{padding:10px 0 8px}
+  input,select,textarea{font-size:16px}
+}
+@media (max-width:760px){
+  .side{display:none}
+  .app{display:block}
+  main{padding:calc(12px + env(safe-area-inset-top,0px)) 16px calc(100px + env(safe-area-inset-bottom,0px))}
+  .tabbar{display:grid;grid-template-columns:repeat(3,1fr);position:fixed;left:0;right:0;bottom:0;z-index:20;background:var(--surface);border-top:1px solid var(--ink);padding:4px 8px calc(4px + env(safe-area-inset-bottom,0px))}
+  .tab{all:unset;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;gap:3px;font-size:11px;color:var(--muted);padding:8px 0 6px;cursor:pointer;-webkit-tap-highlight-color:transparent;min-width:0}
+  .tab svg{width:22px;height:22px}
+  .tab span{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .tab[aria-current="page"]{color:var(--accent);font-weight:500}
+  .fab{display:grid;place-items:center;position:fixed;right:18px;bottom:calc(76px + env(safe-area-inset-bottom,0px));z-index:21;width:54px;height:54px;border-radius:50%;background:var(--accent);color:var(--on-accent);border:0;font-size:28px;line-height:1;cursor:pointer;-webkit-tap-highlight-color:transparent}
+  .toast{bottom:calc(140px + env(safe-area-inset-bottom,0px))}
+  input,select,textarea{font-size:16px}
+  .topbar{margin-bottom:14px}
+  .hero{align-items:center}
+  .hero-main{padding:14px 12px 14px 0;gap:2px}
+  .hero-title{font-size:18px}
+  .hero-stub{padding:14px 0}
+  .dnum{font-size:38px}
+  .keys{flex-wrap:nowrap;overflow-x:auto;white-space:nowrap;margin-bottom:18px;scrollbar-width:none}
+  .keys::-webkit-scrollbar,.chapters::-webkit-scrollbar{display:none}
+  .chapters{grid-auto-columns:74%;scroll-snap-type:x mandatory;margin-bottom:20px;scrollbar-width:none}
+  .chap{scroll-snap-align:start}
+  .grid{gap:20px}
+  .s7,.s5{grid-column:span 12}
+  .blocks{grid-template-columns:1fr;gap:20px}
+  .todo{min-height:52px;gap:10px}
+  .check{width:26px;height:26px}
+  .week{gap:1px}
+  .wkbtn{padding:0 2px}
+  .addrow{flex-wrap:wrap}
+  .addrow input{flex:1 1 100%}
+  .addrow select{flex:1;max-width:none}
+  .pagehead{gap:12px;flex-wrap:wrap}
+  .pagehead .grow{flex:1 1 60%}
+  .vlabel{font-size:17px;min-height:60px;padding-right:10px}
+  h1{font-size:24px}
+  .row{flex-wrap:wrap}
+  .rowact{width:100%;justify-content:flex-start;padding-left:0}
+  .row .check+.rowmain+.rowact{padding-left:36px}
+  .ms li{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px}
+  .ms li .mtitle{flex:1 1 calc(100% - 40px)}
+  .ms li > :nth-child(3){margin-left:36px}
+  .ms li > span:empty{display:none}
+  .inline{flex-wrap:wrap}.inline input[type="date"]{flex:1}
+  .two{gap:12px}
+  .stat{font-size:22px}
+  .acc{grid-template-columns:1fr auto}
+  .acc .num{grid-column:1/2;text-align:left}
+  .erow,.erow.chapf{grid-template-columns:1fr}
+  .foot{flex-direction:column;align-items:stretch}
+  .foot form{flex-direction:column;align-items:stretch}
+  .foot select,.foot input{width:100%}
+  .chapters + .grid > .s5 > div:last-child{display:none}
+  #addTodo{display:none}
+  .pagehead .lead{display:none}
+  .pagehead{align-items:center}
+  .vlabel{min-height:44px}
+  dialog{margin:auto 0 0;width:100%;max-width:100%;max-height:88vh;border-radius:16px 16px 0 0;border-top:0;padding:18px 18px calc(22px + env(safe-area-inset-bottom,0px))}
+  dialog::before{content:"";display:block;width:40px;height:4px;border-radius:2px;background:var(--line);margin:0 auto 12px}
+}
+
+/* ===== 디자인 C-2 (네이비) ===== */
+:root{--font:"Pretendard Variable",Pretendard,-apple-system,system-ui,sans-serif;--head:var(--font);--num:var(--font)}
+body{font-size:16px;letter-spacing:-.01em}
+.small{font-size:14px}
+h1{font-weight:700;letter-spacing:-.02em}
+.vlabel{display:none}
+.check[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--on-accent);transform:none;font-family:var(--font);font-size:13px}
+.check[aria-pressed="true"]::after{content:"✓"}
+.done .t{text-decoration-thickness:1px}
+body{word-break:keep-all;overflow-wrap:break-word}
+@media (max-width:760px){.dnum{font-size:36px!important}.hero-title{font-size:18px!important}.hero{padding:0 18px!important}}
+
+:root{--bg:#FFFFFF;--surface:#FFFFFF;--ink:#101311;--muted:#5D645E;--line:#ECEFEB;--accent:#2C684E;--soft:#EEF5F1;--field:#F6F7F5}
+body{font-size:17px}
+.side{background:#F5F6F4;border:0}
+.brand{font-weight:800}
+.nav{border-radius:10px;margin:1px 0;font-size:15px}
+.nav[aria-current="page"]{background:#fff;color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.08);font-weight:700}
+.hero{border:0;margin-bottom:6px}
+.hero-main{padding-top:6px}
+.hero-title{font-size:28px;font-weight:800;letter-spacing:-.02em}
+.dnum{font-size:68px;font-weight:800;letter-spacing:-.04em}
+.keys{margin-bottom:22px}
+.chapters{border:0;gap:10px;margin-bottom:30px}
+.chap{background:var(--field);border:0!important;border-radius:14px}
+.chap .ct{font-weight:700}
+.chap[aria-pressed="true"]{background:var(--accent);color:#fff}
+.chap[aria-pressed="true"] .ct,.chap[aria-pressed="true"] .small{color:#fff}
+.chap[aria-pressed="true"] .bar{background:rgba(255,255,255,.3)}
+.chap[aria-pressed="true"] .bar span{background:#fff}
+.panel{border-top:0;padding:0}
+h2{font-size:21px;font-weight:800;letter-spacing:-.02em}
+.todo{min-height:56px}
+.check{border-width:2px;width:24px;height:24px}
+.tag{border:0;background:var(--field);border-radius:6px;color:var(--muted);font-weight:500}
+.day{border-radius:12px;border:0}
+.day[aria-pressed="true"]{background:var(--sel);color:#fff}
+.day[aria-pressed="true"] .wd,.day[aria-pressed="true"] .dn{color:#fff}
+.day[aria-pressed="true"] .dots i{background:#fff}
+.btn{border-radius:10px}
+input,select,textarea{border-radius:10px;border-color:transparent}
+.up,.todo,.row{border-top-color:var(--line)}
+
+:root{--bg:#FFFFFF;--surface:#FFFFFF;--ink:#28313D;--muted:#677180;--line:#E9EDF2;--accent:#34507A;--soft:#EEF2F8;--field:#F5F7FA;--sel:#3E5A85;--on-accent:#FFFFFF}
+.side{background:#F4F6F9}
+
+@media (max-width:760px){.tabbar{border-top:1px solid var(--line)}.nav[aria-current="page"]{box-shadow:none}}
+@media (prefers-color-scheme: dark){
+:root{--bg:#131922;--surface:#19202B;--ink:#E3E8EF;--muted:#94A1B3;--line:#253041;--accent:#93B3E2;--soft:#1F2938;--field:#1D2532;--sel:#34507A;--on-accent:#111722}
+.side{background:#10151D}
+
+:root{color-scheme:dark}
+.chap[aria-pressed="true"]{background:var(--sel)!important}
+.nav[aria-current="page"]{background:var(--soft);box-shadow:none;color:var(--ink)}
+input,select,textarea{color:var(--ink)}
+
+}
 </style>
 </head>
 <body>
@@ -217,6 +338,8 @@ html[data-layout="c"] .side .sp{margin:0 0 0 auto}
     <div id="view"></div>
   </div></main>
 </div>
+<nav class="tabbar" id="tabbar" aria-label="하단 메뉴"></nav>
+<button class="fab" data-act="dlg" data-d="quick" aria-label="할 일 추가">+</button>
 <dialog id="dlg"><div id="dlgBody"></div></dialog>
 <input type="file" id="importFile" accept="application/json,.json" hidden>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
@@ -438,7 +561,7 @@ function hero(rev){
   const ks=state.keyDates.slice().sort((a,b)=>a.date.localeCompare(b.date));const main=ks.find(k=>k.main)||ks[0];
   const cur=chapterOf(TODAY);
   if(!main)return `<section class="hero"><div class="hero-main"><p class="hero-title">중요 일정을 추가하세요</p><button class="link" data-act="dlg" data-d="keys">중요 일정 추가</button></div></section><div class="keys"></div>`;
-  return `<section class="hero ${rev?'rev':''}"><div class="hero-main"><p class="hero-title">${esc(main.title)}</p><span class="small">${main.date.slice(0,4)}년 ${dlabel(main.date)}</span>${cur?`<span class="small">지금은 ${esc(cur.title)}, 이 챕터는 ${days(TODAY,cur.end)}일 남았어요.</span>`:''}</div><div class="hero-stub"><span class="dnum">${dday(main.date)}</span></div></section>
+  return `<section class="hero ${rev?'rev':''}"><div class="hero-main"><p class="hero-title">${esc(main.title)}</p><span class="small">${main.date.slice(0,4)}년 ${dlabel(main.date)}</span></div><div class="hero-stub"><span class="dnum">${dday(main.date)}</span></div></section>
   <div class="keys">${ks.filter(k=>k!==main).map(k=>`<span>${esc(k.title)}<b>${dday(k.date)}</b></span>`).join('')}<button class="link" data-act="dlg" data-d="keys">중요 일정 편집</button></div>`;
 }
 function weekPanel(cls,group){
@@ -507,7 +630,11 @@ function settings(){
 function openDlg(d){ui.dlg=d;renderDlg();if(!dlg.open)dlg.showModal()}
 function renderDlg(){
   const box=document.getElementById('dlgBody');let h='';
-  if(ui.dlg==='login'){
+  if(ui.dlg==='spaces'){
+    h=`<div class="dlg-head"><h2>작업 공간</h2><button class="icon" data-act="closedlg" aria-label="닫기">×</button></div><div class="sheet-list">${state.spaces.map(s=>`<button class="sheet-item" data-view="${s.id}"${ui.view===s.id?' aria-current="page"':''}><span>${esc(s.name)}</span><span class="jp" lang="ja">${esc(s.jp)}</span></button>`).join('')}<button class="sheet-item" data-act="dlg" data-d="space" style="color:var(--accent)">+ 공간 추가</button></div>`;
+  }else if(ui.dlg==='quick'){
+    h=`<div class="dlg-head"><h2>할 일 추가</h2><button class="icon" data-act="closedlg" aria-label="닫기">×</button></div><form class="fgrid" data-quick="1"><label class="f w">할 일<input name="text" required autocomplete="off"></label><label class="f">공간<select name="space">${state.spaces.map(s=>`<option value="${s.id}"${ui.view===s.id?' selected':''}>${esc(s.name)}</option>`).join('')}<option value="">기타</option></select></label><label class="f">날짜<input type="date" name="date" value="${ui.day}" required></label><button class="btn" type="submit">추가</button></form>`;
+  }else if(ui.dlg==='login'){
     h=`<div class="dlg-head"><h2>로그인</h2><button class="icon" data-act="closedlg" aria-label="닫기">×</button></div><p class="small">모든 기기에서 같은 계정으로 로그인하면 내용이 자동으로 맞춰져요.</p>
     <form class="fgrid" data-login="1"><label class="f w">이메일<input type="email" name="email" autocomplete="username" required></label><label class="f w">비밀번호 (6자 이상)<input type="password" name="pw" autocomplete="current-password" minlength="6" required></label><button class="btn" type="submit">로그인</button></form>
     <p id="loginMsg" class="small" role="alert"></p>
@@ -534,6 +661,9 @@ function render(){
   const nav=(v,l,cls)=>`<button class="nav ${cls||''}" data-view="${v}"${ui.view===v?' aria-current="page"':''}>${l}</button>`;
   document.getElementById('side').innerHTML=`<div class="brand">나의 작업 공간</div>${nav('home','홈')}${state.spaces.map(s=>nav(s.id,esc(s.name))).join('')}<button class="nav add" data-act="dlg" data-d="space">+ 공간 추가</button><div class="sp"></div>${nav('settings','관리')}`;
   document.getElementById('todayLabel').textContent=dlabel(TODAY);
+  const cur=spaceOf(ui.view);
+  const I={home:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4 11l8-6 8 6v8a1 1 0 0 1-1 1h-4v-5h-6v5H5a1 1 0 0 1-1-1z"/></svg>',sp:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="4" y="4" width="7" height="7"/><rect x="13" y="4" width="7" height="7"/><rect x="4" y="13" width="7" height="7"/><rect x="13" y="13" width="7" height="7"/></svg>',set:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>'};
+  document.getElementById('tabbar').innerHTML=`<button class="tab" data-view="home"${ui.view==='home'?' aria-current="page"':''}>${I.home}<span>홈</span></button><button class="tab" data-act="dlg" data-d="spaces"${cur?' aria-current="page"':''}>${I.sp}<span>${cur?esc(cur.name):'공간'}</span></button><button class="tab" data-view="settings"${ui.view==='settings'?' aria-current="page"':''}>${I.set}<span>관리</span></button>`;
   document.getElementById('view').innerHTML=ui.view==='home'?home():ui.view==='settings'?settings():spacePage(spaceOf(ui.view));
   if(ui.dlg)renderDlg();
 }
@@ -545,7 +675,7 @@ const dlg=document.getElementById('dlg');
 dlg.addEventListener('close',()=>{ui.dlg=null});
 
 document.addEventListener('click',e=>{
-  const v=e.target.closest('[data-view]');if(v){ui.view=v.dataset.view;ui.edit=false;render();window.scrollTo(0,0);return}
+  const v=e.target.closest('[data-view]');if(v){if(dlg.open)dlg.close();ui.view=v.dataset.view;ui.edit=false;render();window.scrollTo(0,0);return}
   const ls=e.target.closest('[data-layout-set]');if(ls){state.layout=ls.dataset.layoutSet;ui.view='home';save();render();return}
   const el=e.target.closest('[data-act]');if(!el)return;
   const a=el.dataset.act,id=el.dataset.id,b=el.dataset.b?blockOf(el.dataset.b):null;
@@ -597,6 +727,7 @@ document.addEventListener('click',e=>{
 document.addEventListener('submit',e=>{
   e.preventDefault();const f=e.target,fd=Object.fromEntries(new FormData(f)),ds=f.dataset;
   if(ds.login){loginMsg('');sb.auth.signInWithPassword({email:fd.email.trim(),password:fd.pw}).then(async({data,error})=>{if(error){loginMsg('로그인하지 못했어요. 이메일과 비밀번호를 확인하세요.');return}session=data.session;dlg.close();await pull();render();toast('로그인했어요')});return}
+  if(ds.quick){state.todos.push({id:uid(),text:fd.text.trim(),date:fd.date,space:fd.space,done:false});dlg.close();toast(fd.date===TODAY?'오늘 할 일에 추가했어요':fd.date+' 할 일에 추가했어요');save();render();return}
   if(f.id==='addTodo')state.todos.push({id:uid(),text:fd.text.trim(),date:ui.day,space:fd.space,done:false});
   else if(ds.list){const b=blockOf(ds.list);data(b).unshift({id:uid(),...fd,...(b.type==='links'?{status:'예정'}:{}),...(b.type==='checklist'?{done:false}:{}),...(b.type==='books'?{status:'읽는 중'}:{})});toast('저장했어요')}
   else if(ds.ms){const[bid,gid]=ds.ms.split('|');byId(data(blockOf(bid)),gid).ms.push({id:uid(),title:fd.title.trim(),date:fd.date,done:false})}
