@@ -477,6 +477,25 @@ mark{background:#FFE7A0;color:inherit;border-radius:3px;padding:0 1px}
   .sinput input{font-size:16px}
   .sfoot{display:none}
 }
+
+/* ===== v6: 수정, 자동 연계, 독서 노트 ===== */
+.rowact .icon .ic,.goal-head .icon .ic,.ms .icon .ic,.todo .icon .ic{width:14px;height:14px}
+.efm{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;width:100%;padding:6px 0}
+.efm .w{grid-column:1/-1}
+.eacts{display:flex;gap:8px;align-items:center}
+.row.editing,.todo.editing,.ms li.editing{display:block;background:var(--field);border-radius:12px;padding:10px 12px;border-top:0;margin:4px 0}
+.ms li.editing{grid-template-columns:none}
+.msi .msg{display:inline-flex;align-items:center;gap:4px;margin-left:8px;font-size:12px;color:var(--muted)}
+.msi .msg .ic{width:12px;height:12px}
+.rv{font-size:13px;margin-top:4px;display:flex;gap:8px;align-items:center}
+.rv .st{color:#E0A526;letter-spacing:1px}
+.rvbtn{margin-top:8px;align-self:flex-start;display:inline-flex;gap:6px;align-items:center}
+.stars{display:flex;flex-direction:row-reverse;justify-content:flex-end;gap:2px}
+.stars input{position:absolute;opacity:0;width:1px;height:1px}
+.stars label{font-size:28px;line-height:1;color:var(--line);cursor:pointer}
+.stars input:checked ~ label,.stars label:hover,.stars label:hover ~ label{color:#E0A526}
+.stars input:focus-visible + label{outline:2px solid var(--accent);border-radius:4px}
+@media (max-width:760px){.msi .msg{display:flex;margin:2px 0 0}}
 </style>
 
 </head>
@@ -502,7 +521,7 @@ mark{background:#FFE7A0;color:inherit;border-radius:3px;padding:0 1px}
 const CONFIG={
   SUPABASE_URL:'https://sggopzkdznrpixcgdpjf.supabase.co',
   SUPABASE_ANON_KEY:'sb_publishable_mP2IQSLYwoJhsEqx8UX1Fg_1CwVk2GJ',
-  GOOGLE_CLIENT_ID:'634088716436-b8j56nkjfbn8kg8h58qbuam24ldqrl56.apps.googleusercontent.com',
+  GOOGLE_CLIENT_ID:'여기에_구글_클라이언트_ID',
   AI_FUNCTION:'ai-organize',
   CAL_FUNCTION:'calendar-feed'
 };
@@ -660,34 +679,44 @@ const LT={
   info:{add:'+ 정보 추가',fields:[['label','항목','text'],['value','내용','text']],
     row:i=>`<span class="small">${esc(i.label)}</span><b>${esc(i.value)}</b>`,
     extra:(i,b)=>`<button class="chip" data-act="copyinfo" data-b="${b.id}" data-id="${i.id}">복사</button>`},
-  books:{add:'+ 책 추가',fields:[['title','책 제목','text'],['author','저자','text','o'],['date','시작일','date'],['memo','느낀 점, 기억할 문장, 적용할 점','textarea','w']],sort:(a,b)=>{const o={'읽는 중':0,'읽고 싶은 책':1,'다 읽음':2};return (o[a.status]??1)-(o[b.status]??1)||b.date.localeCompare(a.date)},
+  books:{add:'+ 책 추가',fields:[['title','책 제목','text'],['author','저자','text','o'],['date','시작일','date'],['memo','메모','textarea','ow']],sort:(a,b)=>{const o={'읽는 중':0,'읽고 싶은 책':1,'다 읽음':2};return (o[a.status]??1)-(o[b.status]??1)||b.date.localeCompare(a.date)},
     head:it=>'다 읽음 '+it.filter(i=>i.status==='다 읽음').length+'권 / 읽는 중 '+it.filter(i=>i.status==='읽는 중').length+'권',
-    row:i=>`<b>${esc(i.title)}</b><span class="small">${esc(i.author||'')}${i.author?' / ':''}${esc(i.date)} 시작${i.end?' / '+esc(i.end)+' 완독':''}</span>${i.memo?`<div class="pre">${esc(i.memo)}</div>`:''}`,
+    row:(i,b)=>{const r=i.review,st=r&&+r.stars||0;return `<b>${esc(i.title)}</b><span class="small">${esc(i.author||'')}${i.author?' / ':''}${esc(i.date)} 시작${i.end?' / '+esc(i.end)+' 완독':''}</span>${i.memo?`<div class="pre">${esc(i.memo)}</div>`:''}${r&&(st||r.line)?`<div class="rv">${st?`<span class="st">${'★'.repeat(st)}${'☆'.repeat(5-st)}</span>`:''}${esc(r.line||'')}</div>`:''}${i.status==='다 읽음'?`<button class="btn sm ${r?'ghost':''} rvbtn" data-act="review" data-b="${b.id}" data-id="${i.id}">${ICON.books}${r?'독서 노트 보기':'독서 노트 쓰기'}</button>`:''}`},
     extra:(i,b)=>`<button class="chip st-${Math.max(0,BSTATUS.indexOf(i.status))}" data-act="bstatus" data-b="${b.id}" data-id="${i.id}">${esc(i.status||BSTATUS[0])}</button>`},
   works:{add:'+ 작업물 추가',fields:[['title','작업명','text'],['tool','툴','text','o'],['note','배운 점','text','o']],
     row:i=>`<b>${esc(i.title)}</b><span class="small">${esc(i.tool)}${i.note?' / '+esc(i.note):''}</span>`,
     extra:(i,b)=>`<button class="chip" data-act="pf" data-b="${b.id}" data-id="${i.id}" aria-pressed="${!!i.pf}">포트폴리오 후보</button>`}
 };
-function field([k,label,type,fl]){
+const PEN='<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20l4-1 11-11-3-3L5 16z"/><path d="M14 6l3 3"/></svg>';
+const editBtn=k=>`<button class="icon" data-act="eopen" data-k="${k}" aria-label="수정">${PEN}</button>`;
+const editActs='<div class="eacts w"><button class="btn sm" type="submit">저장</button><button class="btn ghost sm" type="button" data-act="ecancel">취소</button></div>';
+function field([k,label,type,fl],v){
   fl=fl||'';const req=fl.includes('o')?'':'required';const cls='f'+(fl.includes('w')||type==='textarea'?' w':'');
-  const inp=type==='textarea'?`<textarea name="${k}" ${req}></textarea>`:`<input name="${k}" type="${type}" ${type==='date'?`value="${TODAY}"`:''} ${req}>`;
+  const val=v!==undefined&&v!==null?v:(type==='date'?TODAY:'');
+  const inp=type==='textarea'?`<textarea name="${k}" ${req}>${esc(val)}</textarea>`:`<input name="${k}" type="${type}" value="${esc(val)}" ${req}>`;
   return `<label class="${cls}">${esc(label)}${inp}</label>`;
 }
 function listBlock(b){
   const L=LT[b.type];let it=data(b).slice();if(L.sort)it.sort(L.sort);
-  const rows=it.length?it.map(i=>`<li class="row ${L.check&&i.done?'done':''}">${L.check?`<button class="check" data-act="chk" data-b="${b.id}" data-id="${i.id}" aria-pressed="${!!i.done}" aria-label="완료 표시"></button>`:''}<div class="rowmain">${L.row(i)}</div><div class="rowact">${L.extra?L.extra(i,b):''}<button class="icon" data-act="del" data-b="${b.id}" data-id="${i.id}" aria-label="삭제">×</button></div></li>`).join(''):'<li class="empty">아직 비어 있어요. 아래에서 추가하세요.</li>';
-  return {head:L.head?L.head(it):it.length+'개',body:`<ul class="list">${rows}</ul><details class="adder"><summary>${L.add}</summary><form data-list="${b.id}">${L.fields.map(field).join('')}<button class="btn" type="submit">저장</button></form></details>`};
+  const rows=it.length?it.map(i=>{const k='li:'+b.id+':'+i.id;
+    if(ui.editing===k)return `<li class="row editing"><form class="efm" data-edit="${b.id}|${i.id}">${L.fields.map(f=>field(f,i[f[0]])).join('')}${editActs}</form></li>`;
+    return `<li class="row ${L.check&&i.done?'done':''}">${L.check?`<button class="check" data-act="chk" data-b="${b.id}" data-id="${i.id}" aria-pressed="${!!i.done}" aria-label="완료 표시"></button>`:''}<div class="rowmain">${L.row(i,b)}</div><div class="rowact">${L.extra?L.extra(i,b):''}${editBtn(k)}<button class="icon" data-act="del" data-b="${b.id}" data-id="${i.id}" aria-label="삭제">×</button></div></li>`}).join(''):'<li class="empty">아직 비어 있어요. 아래에서 추가하세요.</li>';
+  return {head:L.head?L.head(it):it.length+'개',body:`<ul class="list">${rows}</ul><details class="adder"><summary>${L.add}</summary><form data-list="${b.id}">${L.fields.map(f=>field(f)).join('')}<button class="btn" type="submit">저장</button></form></details>`};
 }
 function goalsBlock(b,sp){
   const gs=data(b);
   const body=gs.map(g=>{
     g.ms.sort((x,y)=>x.date.localeCompare(y.date));
-    const dn=g.ms.filter(m=>m.done).length,p=g.ms.length?Math.round(dn/g.ms.length*100):0;
-    return `<div class="goal"><div class="goal-head"><b>${esc(g.title)}</b><span class="small">${esc(g.due)}까지 / ${dday(g.due)} <button class="icon" data-act="delgoal" data-b="${b.id}" data-id="${g.id}" aria-label="목표 삭제">×</button></span></div>
+    const dn=g.ms.filter(m=>m.done).length,p=g.ms.length?Math.round(dn/g.ms.length*100):0,gk='g:'+b.id+':'+g.id;
+    const head=ui.editing===gk?`<form class="efm" data-gedit="${b.id}|${g.id}"><label class="f w">목표<input name="title" value="${esc(g.title)}" required></label><label class="f">마감일<input type="date" name="due" value="${esc(g.due)}" required></label>${editActs}</form>`
+      :`<div class="goal-head"><b>${esc(g.title)}</b><span class="small">${esc(g.due)}까지 / ${dday(g.due)} ${editBtn(gk)}<button class="icon" data-act="delgoal" data-b="${b.id}" data-id="${g.id}" aria-label="목표 삭제">×</button></span></div>`;
+    return `<div class="goal">${head}
     <div class="bar"><span style="width:${p}%"></span></div>
-    <ol class="ms">${g.ms.map(m=>{const c=chapterOf(m.date);return `<li class="${m.done?'done':''}"><button class="check" data-act="ms" data-b="${b.id}" data-g="${g.id}" data-id="${m.id}" aria-pressed="${m.done}" aria-label="완료 표시"></button><span class="mtitle">${esc(m.title)}</span><span class="small">${esc(m.date)}</span>${c?`<span class="tag">${esc(c.title)}</span>`:'<span></span>'}<button class="link" data-act="ms2todo" data-s="${sp.id}" data-b="${b.id}" data-g="${g.id}" data-id="${m.id}">할 일로</button></li>`}).join('')}</ol>
-    <form class="inline" data-ms="${b.id}|${g.id}"><input name="title" placeholder="중간 목표 추가" required aria-label="중간 목표"><input type="date" name="date" required aria-label="날짜"><button class="btn ghost" type="submit">추가</button></form></div>`;
-  }).join('')||'<p class="empty">큰 목표를 하나 정하고, 날짜가 있는 중간 목표로 쪼개 보세요. 날짜에 맞는 챕터가 자동으로 붙어요.</p>';
+    <ol class="ms">${g.ms.map(m=>{const c=chapterOf(m.date),mk='m:'+b.id+':'+g.id+':'+m.id;
+      if(ui.editing===mk)return `<li class="editing"><form class="efm" data-medit="${b.id}|${g.id}|${m.id}"><label class="f w">중간 목표<input name="title" value="${esc(m.title)}" required></label><label class="f">날짜<input type="date" name="date" value="${esc(m.date)}" required></label>${editActs}<button class="link" type="button" data-act="msdel" data-b="${b.id}" data-g="${g.id}" data-id="${m.id}">이 중간 목표 삭제</button></form></li>`;
+      return `<li class="${m.done?'done':''}"><button class="check" data-act="ms" data-b="${b.id}" data-g="${g.id}" data-id="${m.id}" aria-pressed="${m.done}" aria-label="완료 표시"></button><span class="mtitle">${esc(m.title)}</span><span class="small">${esc(m.date)}</span>${c?`<span class="tag">${esc(c.title)}</span>`:'<span></span>'}${editBtn(mk)}</li>`}).join('')}</ol>
+    <form class="inline" data-ms="${b.id}|${g.id}"><input name="title" placeholder="중간 목표 추가 (날짜에 맞춰 할 일에 자동으로 떠요)" required aria-label="중간 목표"><input type="date" name="date" required aria-label="날짜"><button class="btn ghost" type="submit">추가</button></form></div>`;
+  }).join('')||'<p class="empty">큰 목표를 하나 정하고, 날짜가 있는 중간 목표로 쪼개 보세요. 그날이 되면 오늘 할 일에 자동으로 떠요.</p>';
   return {head:'',body:body+`<details class="adder"><summary>+ 새 목표</summary><form data-goal="${b.id}"><label class="f w">목표<input name="title" required></label><label class="f">마감일<input type="date" name="due" required></label><button class="btn" type="submit">저장</button></form></details>`};
 }
 function moneyBlock(b){
@@ -713,7 +742,15 @@ function blockHtml(sp,b,i,n){
 }
 
 function todoItem(t,showDate,noTag){
-  return `<li class="todo ${t.done?'done':''}"><button class="check" data-act="toggle" data-id="${t.id}" aria-pressed="${t.done}" aria-label="완료 표시"></button><span class="t">${esc(t.text)}${showDate?` <span class="small">${esc(t.date)}</span>`:''}</span>${noTag?'':`<span class="tag">${esc(spName(t.space))}</span>`}<button class="icon" data-act="deltodo" data-id="${t.id}" aria-label="삭제">×</button></li>`;
+  const k='t:'+t.id;
+  if(ui.editing===k)return `<li class="todo editing"><form class="efm" data-tedit="${t.id}"><label class="f w">할 일<input name="text" value="${esc(t.text)}" required></label><label class="f">날짜<input type="date" name="date" value="${esc(t.date)}" required></label><label class="f">공간<select name="space">${state.spaces.map(s=>`<option value="${s.id}"${t.space===s.id?' selected':''}>${esc(s.name)}</option>`).join('')}<option value=""${!t.space?' selected':''}>기타</option></select></label>${editActs}</form></li>`;
+  return `<li class="todo ${t.done?'done':''}"><button class="check" data-act="toggle" data-id="${t.id}" aria-pressed="${t.done}" aria-label="완료 표시"></button><span class="t">${esc(t.text)}${showDate?` <span class="small">${esc(t.date)}</span>`:''}</span>${noTag?'':`<span class="tag">${esc(spName(t.space))}</span>`}${editBtn(k)}<button class="icon" data-act="deltodo" data-id="${t.id}" aria-label="삭제">×</button></li>`;
+}
+const msDupe=x=>state.todos.some(t=>t.date===x.m.date&&t.text===x.m.title);
+function msItem(x,showDate,noTag){
+  const {m,g,b,sp}=x,k='m:'+b.id+':'+g.id+':'+m.id;
+  if(ui.editing===k)return `<li class="todo editing"><form class="efm" data-medit="${b.id}|${g.id}|${m.id}"><label class="f w">중간 목표<input name="title" value="${esc(m.title)}" required></label><label class="f">날짜<input type="date" name="date" value="${esc(m.date)}" required></label>${editActs}</form></li>`;
+  return `<li class="todo msi ${m.done?'done':''}"><button class="check" data-act="ms" data-b="${b.id}" data-g="${g.id}" data-id="${m.id}" aria-pressed="${m.done}" aria-label="완료 표시"></button><span class="t">${esc(m.title)}${showDate?` <span class="small">${esc(m.date)}</span>`:''}<span class="msg">${ICON.goals}${esc(g.title)}</span></span>${noTag?'':`<span class="tag">${esc(sp.name)}</span>`}${editBtn(k)}<span class="icon" aria-hidden="true" style="visibility:hidden">×</span></li>`;
 }
 function hero(rev){
   const ks=state.keyDates.slice().sort((a,b)=>a.date.localeCompare(b.date));const main=ks.find(k=>k.main)||ks[0];
@@ -723,17 +760,20 @@ function hero(rev){
   <div class="keys">${ks.filter(k=>k!==main).map(k=>`<span>${esc(k.title)}<b>${dday(k.date)}</b></span>`).join('')}<button class="link" data-act="dlg" data-d="keys">중요 일정 편집</button></div>`;
 }
 function weekPanel(cls,group){
-  const ds=[...Array(7)].map((_,i)=>addDays(ui.week,i));
-  const strip=`<div class="week"><button class="wkbtn" data-act="wk" data-n="-7" aria-label="지난주">‹</button>${ds.map((d,i)=>{const n=state.todos.filter(t=>t.date===d).length;return `<button class="day ${d===TODAY?'is-today':''}" data-act="day" data-d="${d}" aria-pressed="${d===ui.day}" aria-label="${dlabel(d)}, 할 일 ${n}개"><span class="wd">${WD[i]}</span><span class="dn">${parse(d).getDate()}</span><span class="dots">${'<i></i>'.repeat(Math.min(n,4))}</span></button>`}).join('')}<button class="wkbtn" data-act="wk" data-n="7" aria-label="다음 주">›</button></div>`;
-  const list=state.todos.filter(t=>t.date===ui.day),over=ui.day===TODAY?state.todos.filter(t=>t.date<TODAY&&!t.done):[];
+  const ds=[...Array(7)].map((_,i)=>addDays(ui.week,i)),AM=allMs().filter(x=>!msDupe(x));
+  const strip=`<div class="week"><button class="wkbtn" data-act="wk" data-n="-7" aria-label="지난주">‹</button>${ds.map((d,i)=>{const n=state.todos.filter(t=>t.date===d).length+AM.filter(x=>x.m.date===d).length;return `<button class="day ${d===TODAY?'is-today':''}" data-act="day" data-d="${d}" aria-pressed="${d===ui.day}" aria-label="${dlabel(d)}, 할 일 ${n}개"><span class="wd">${WD[i]}</span><span class="dn">${parse(d).getDate()}</span><span class="dots">${'<i></i>'.repeat(Math.min(n,4))}</span></button>`}).join('')}<button class="wkbtn" data-act="wk" data-n="7" aria-label="다음 주">›</button></div>`;
+  const list=state.todos.filter(t=>t.date===ui.day),mlist=AM.filter(x=>x.m.date===ui.day);
+  const over=ui.day===TODAY?state.todos.filter(t=>t.date<TODAY&&!t.done):[],mover=ui.day===TODAY?AM.filter(x=>x.m.date<TODAY&&!x.m.done):[];
+  const items=[...list.map(t=>({sp:t.space||'',html:todoItem(t,false,group)})),...mlist.map(x=>({sp:x.sp.id,html:msItem(x,false,group)}))];
+  const overN=over.length+mover.length;
   return `<section class="panel ${cls}"><div class="ph"><h2>${ui.day===TODAY?'오늘 할 일':dlabel(ui.day)}</h2>${ui.day!==TODAY?'<button class="link" data-act="gotoday">오늘로</button>':''}</div>${strip}
-  ${over.length?`<p class="small" style="margin:0">밀린 일 ${over.length}개</p><ul class="list">${over.map(t=>todoItem(t,true)).join('')}</ul><p class="small" style="margin:12px 0 0">${dlabel(ui.day)}</p>`:''}
-  ${!list.length?'<p class="empty">이날은 할 일이 없어요. 아래에 적거나, 목표에서 보내오세요.</p>':group?[...state.spaces.map(x=>x.id),''].filter(id=>list.some(t=>t.space===id)).map(id=>`<div class="grp">${esc(spName(id))}</div><ul class="list">${list.filter(t=>t.space===id).map(t=>todoItem(t,false,true)).join('')}</ul>`).join(''):`<ul class="list">${list.map(t=>todoItem(t)).join('')}</ul>`}
+  ${overN?`<p class="small" style="margin:0">밀린 일 ${overN}개</p><ul class="list">${over.map(t=>todoItem(t,true)).join('')}${mover.map(x=>msItem(x,true)).join('')}</ul><p class="small" style="margin:12px 0 0">${dlabel(ui.day)}</p>`:''}
+  ${!items.length?'<p class="empty">이날은 할 일이 없어요. 아래에 적거나, 목표에 날짜가 있는 중간 목표를 넣으면 자동으로 떠요.</p>':group?[...state.spaces.map(x=>x.id),''].filter(id=>items.some(t=>t.sp===id)).map(id=>`<div class="grp">${esc(spName(id))}</div><ul class="list">${items.filter(t=>t.sp===id).map(t=>t.html).join('')}</ul>`).join(''):`<ul class="list">${items.map(t=>t.html).join('')}</ul>`}
   <form class="addrow" id="addTodo"><input name="text" placeholder="할 일 추가" required aria-label="할 일"><select name="space" aria-label="공간">${state.spaces.map(s=>`<option value="${s.id}">${esc(s.name)}</option>`).join('')}<option value="">기타</option></select><button class="btn" type="submit">추가</button></form></section>`;
 }
 function progPanel(){
-  const ds=[ui.week,addDays(ui.week,6)],wk=state.todos.filter(t=>t.date>=ds[0]&&t.date<=ds[1]);
-  return `<section class="panel"><div class="ph"><h2>이번 주 진행</h2></div>${state.spaces.map(s=>{const a=wk.filter(t=>t.space===s.id),d=a.filter(t=>t.done).length,p=a.length?Math.round(d/a.length*100):0;return `<div class="prog"><span>${esc(s.name)}</span><div class="bar"><span style="width:${p}%"></span></div><span class="n">${d}/${a.length}</span></div>`}).join('')}</section>`;
+  const d0=ui.week,d1=addDays(ui.week,6),wk=state.todos.filter(t=>t.date>=d0&&t.date<=d1),wm=allMs().filter(x=>x.m.date>=d0&&x.m.date<=d1&&!msDupe(x));
+  return `<section class="panel"><div class="ph"><h2>이번 주 진행</h2></div>${state.spaces.map(s=>{const a=wk.filter(t=>t.space===s.id).map(t=>t.done).concat(wm.filter(x=>x.sp.id===s.id).map(x=>x.m.done)),d=a.filter(Boolean).length,p=a.length?Math.round(d/a.length*100):0;return `<div class="prog"><span>${esc(s.name)}</span><div class="bar"><span style="width:${p}%"></span></div><span class="n">${d}/${a.length}</span></div>`}).join('')}</section>`;
 }
 function upPanel(c){
   let ms=allMs().filter(x=>!x.m.done);ms=c?ms.filter(x=>x.m.date>=c.start&&x.m.date<=c.end):ms.filter(x=>x.m.date>=TODAY);
@@ -792,6 +832,15 @@ function renderDlg(){
     h=`<div class="dlg-head"><h2>작업 공간</h2><button class="icon" data-act="closedlg" aria-label="닫기">×</button></div><div class="sheet-list">${state.spaces.map(s=>`<button class="sheet-item" data-view="${s.id}"${ui.view===s.id?' aria-current="page"':''}><span>${esc(s.name)}</span><span class="jp" lang="ja">${esc(s.jp)}</span></button>`).join('')}<button class="sheet-item" data-act="dlg" data-d="space" style="color:var(--accent)">+ 공간 추가</button></div>`;
   }else if(ui.dlg==='quick'){
     h=`<div class="dlg-head"><h2>할 일 추가</h2><button class="icon" data-act="closedlg" aria-label="닫기">×</button></div><form class="fgrid" data-quick="1"><label class="f w">할 일<input name="text" required autocomplete="off"></label><label class="f">공간<select name="space">${state.spaces.map(s=>`<option value="${s.id}"${ui.view===s.id?' selected':''}>${esc(s.name)}</option>`).join('')}<option value="">기타</option></select></label><label class="f">날짜<input type="date" name="date" value="${ui.day}" required></label><button class="btn" type="submit">추가</button></form>`;
+  }else if(ui.dlg==='review'){
+    const rb=ui.rv&&blockOf(ui.rv.bid),bk=rb&&byId(data(rb),ui.rv.id);
+    if(bk){const r=bk.review||{};h=`<div class="dlg-head"><h2>독서 노트</h2><button class="icon" data-act="closedlg" aria-label="닫기">×</button></div><p class="small" style="margin:0 0 6px"><b>${esc(bk.title)}</b>${bk.author?' / '+esc(bk.author):''}</p>
+    <form class="fgrid" data-review="1"><div class="f w">별점<div class="stars">${[5,4,3,2,1].map(n=>`<input type="radio" name="stars" id="st${n}" value="${n}"${(+r.stars||0)===n?' checked':''}><label for="st${n}" aria-label="${n}점">★</label>`).join('')}</div></div>
+    <label class="f w">한 줄 평<input name="line" value="${esc(r.line||'')}" placeholder="이 책을 한 문장으로"></label>
+    <label class="f w">기억할 문장<textarea name="quote" placeholder="남기고 싶은 문장">${esc(r.quote||'')}</textarea></label>
+    <label class="f w">느낀 점과 적용할 점<textarea name="text" style="min-height:170px">${esc(r.text||'')}</textarea></label>
+    <label class="f">다 읽은 날<input type="date" name="end" value="${esc(bk.end||TODAY)}"></label>
+    <button class="btn" type="submit">저장</button></form>`}
   }else if(ui.dlg==='search'){
     h=`<div class="sinput">${ICON.search}<input id="sq" type="text" enterkeyhint="search" placeholder="검색어를 입력하세요" value="${esc(ui.sq)}" autocomplete="off" aria-label="검색"><button class="icon" data-act="closedlg" aria-label="닫기">×</button></div><div class="sfilters" id="sfilters"></div><div class="sbody" id="sresults"></div><div class="sfoot"><span>↑↓ 이동</span><span>enter 열기</span><span>esc 닫기</span></div>`;
   }else if(ui.dlg==='login'){
@@ -1052,7 +1101,7 @@ function searchIndex(){
     switch(b.type){
       case 'goals':D.forEach(g=>{add('goal',g.title,`${P} / ${g.due}까지`,'',go);g.ms.forEach(m=>add('goal',m.title,`${P} / ${g.title} / ${m.date}`,'',go))});break;
       case 'notes':D.forEach(i=>add('note',i.title,`${P} / ${i.date}`,i.body,go));break;
-      case 'books':D.forEach(i=>add('note',i.title,`${P} / ${i.author||''} ${i.status||''}`,i.memo,go));break;
+      case 'books':D.forEach(i=>add('note',i.title,`${P} / ${i.author||''} ${i.status||''}`,[i.memo,i.review&&[i.review.line,i.review.quote,i.review.text].join(' ')].join(' '),go));break;
       case 'wins':D.forEach(i=>add('note',`${i.sit} 상황에서 ${i.act}`,`${P} / ${i.date}`,i.res+' '+(i.skill||''),go));break;
       case 'copy':D.forEach(i=>add('note',i.title,P,(i.subject||'')+' '+i.body,go));break;
       case 'info':D.forEach(i=>add('note',i.label,P,i.value,go));break;
@@ -1291,6 +1340,25 @@ document.addEventListener('dragleave',e=>{const z=e.target.closest&&e.target.clo
 document.addEventListener('drop',e=>{const z=e.target.closest&&e.target.closest('[data-drop]');if(!z)return;e.preventDefault();z.classList.remove('over');const fl=Array.from(e.dataTransfer.files||[]);if(!fl.length)return;if(z.dataset.drop==='files')filesUpload(z.dataset.b,fl);else{ui.inFile[z.dataset.b]=fl[0];render()}});
 dlg.addEventListener('close',()=>dlg.classList.remove('wide'));
 
+
+document.addEventListener('click',e=>{
+  const el=e.target.closest('[data-act]');if(!el)return;const a=el.dataset.act;
+  if(a==='eopen'){ui.editing=el.dataset.k;render();const f=document.querySelector('.editing input, .editing textarea');if(f){f.focus();if(f.select)f.select()}return}
+  if(a==='ecancel'){ui.editing=null;render();return}
+  if(a==='review'){ui.rv={bid:el.dataset.b,id:el.dataset.id};openDlg('review');return}
+  if(a==='msdel'){if(!confirm('이 중간 목표를 삭제할까요?'))return;const g=byId(data(blockOf(el.dataset.b)),el.dataset.g);g.ms=g.ms.filter(m=>m.id!==el.dataset.id);ui.editing=null;save();render();return}
+});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&ui.editing&&!ui.dlg){ui.editing=null;render()}});
+document.addEventListener('submit',e=>{
+  const f=e.target,ds=f.dataset;if(!(ds.edit||ds.gedit||ds.medit||ds.tedit||ds.review))return;
+  e.preventDefault();const fd=Object.fromEntries(new FormData(f)),T=v=>typeof v==='string'?v.trim():v;
+  if(ds.edit){const[bid,id]=ds.edit.split('|');const it=byId(data(blockOf(bid)),id);if(it)Object.keys(fd).forEach(k=>it[k]=T(fd[k]))}
+  else if(ds.gedit){const[bid,gid]=ds.gedit.split('|');const g=byId(data(blockOf(bid)),gid);g.title=T(fd.title);g.due=fd.due}
+  else if(ds.medit){const[bid,gid,mid]=ds.medit.split('|');const m=byId(byId(data(blockOf(bid)),gid).ms,mid);m.title=T(fd.title);m.date=fd.date}
+  else if(ds.tedit){const t=byId(state.todos,ds.tedit);t.text=T(fd.text);t.date=fd.date;t.space=fd.space}
+  else if(ds.review){const bk=byId(data(blockOf(ui.rv.bid)),ui.rv.id);bk.review={stars:+fd.stars||0,line:T(fd.line||''),quote:T(fd.quote||''),text:T(fd.text||''),date:TODAY};bk.end=fd.end||bk.end;bk.status='다 읽음';dlg.close()}
+  ui.editing=null;save();render();toast('저장했어요');
+});
 render();
 initSync();
 </script>
