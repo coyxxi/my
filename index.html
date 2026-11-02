@@ -496,6 +496,12 @@ mark{background:#FFE7A0;color:inherit;border-radius:3px;padding:0 1px}
 .stars input:checked ~ label,.stars label:hover,.stars label:hover ~ label{color:#E0A526}
 .stars input:focus-visible + label{outline:2px solid var(--accent);border-radius:4px}
 @media (max-width:760px){.msi .msg{display:flex;margin:2px 0 0}}
+
+/* ===== v7: 반복 일정 ===== */
+.rti .msg{display:inline-flex;align-items:center;gap:4px;margin-left:8px;font-size:12px;color:var(--accent)}
+.rti .msg .ic{width:12px;height:12px}
+.addrow select[name=repeat]{width:auto}
+@media (max-width:760px){.rti .msg{display:flex;margin:2px 0 0}}
 </style>
 
 </head>
@@ -521,7 +527,7 @@ mark{background:#FFE7A0;color:inherit;border-radius:3px;padding:0 1px}
 const CONFIG={
   SUPABASE_URL:'https://sggopzkdznrpixcgdpjf.supabase.co',
   SUPABASE_ANON_KEY:'sb_publishable_mP2IQSLYwoJhsEqx8UX1Fg_1CwVk2GJ',
-  GOOGLE_CLIENT_ID:'여기에_구글_클라이언트_ID',
+  GOOGLE_CLIENT_ID:'634088716436-b8j56nkjfbn8kg8h58qbuam24ldqrl56.apps.googleusercontent.com',
   AI_FUNCTION:'ai-organize',
   CAL_FUNCTION:'calendar-feed'
 };
@@ -741,9 +747,25 @@ function blockHtml(sp,b,i,n){
   return `<section class="panel ${BT[b.type].wide?'wide':''}" id="b-${b.id}"><div class="ph">${ui.edit?bicon(b.type):''}${title}<span class="small">${ui.edit?BT[b.type].name:r.head}</span>${ctl}</div>${r.body}</section>`;
 }
 
+const RULES={daily:'매일',weekdays:'평일',weekly:'매주',monthly:'매월'};
+const RPT='<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 2l3 3-3 3"/><path d="M4 11V9a4 4 0 0 1 4-4h12"/><path d="M7 22l-3-3 3-3"/><path d="M20 13v2a4 4 0 0 1-4 4H4"/></svg>';
+const repeatSel=v=>`<select name="repeat" aria-label="반복">${[['none','반복 안 함'],['daily','매일'],['weekdays','평일 (월~금)'],['weekly','매주 같은 요일'],['monthly','매월 같은 날']].map(([k,l])=>`<option value="${k}"${(v||'none')===k?' selected':''}>${l}</option>`).join('')}</select>`;
+function occurs(r,d){if(!r||d<r.start||(r.end&&d>r.end)||(r.skip&&r.skip[d]))return false;const wd=(parse(d).getDay()+6)%7;switch(r.rule){case 'daily':return true;case 'weekdays':return wd<5;case 'weekly':return wd===(parse(r.start).getDay()+6)%7;case 'monthly':return parse(d).getDate()===parse(r.start).getDate()}return false}
+const routinesOn=d=>(state.routines||[]).filter(r=>occurs(r,d));
+function streak(r){let d=TODAY,n=0;if(!(r.done&&r.done[d]))d=addDays(d,-1);for(let i=0;i<400&&d>=r.start;i++){if(occurs(r,d)){if(r.done&&r.done[d])n++;else break}d=addDays(d,-1)}return n}
+function addTask(text,date,space,rule){text=String(text||'').trim();if(!text)return;if(rule&&rule!=='none'){(state.routines=state.routines||[]).push({id:uid(),text,space:space||'',rule,start:date||TODAY,end:'',done:{},skip:{}})}else state.todos.push({id:uid(),text,date:date||TODAY,space:space||'',done:false})}
+function rtItem(r,d,noTag){
+  const k='r:'+r.id,done=!!(r.done&&r.done[d]),st=streak(r);
+  if(ui.editing===k)return `<li class="todo editing"><form class="efm" data-redit="${r.id}"><label class="f w">반복 할 일<input name="text" value="${esc(r.text)}" required></label><label class="f">공간<select name="space">${state.spaces.map(s=>`<option value="${s.id}"${r.space===s.id?' selected':''}>${esc(s.name)}</option>`).join('')}<option value=""${!r.space?' selected':''}>기타</option></select></label><label class="f">반복${repeatSel(r.rule)}</label><label class="f">시작일<input type="date" name="start" value="${esc(r.start)}" required></label><label class="f">종료일 (선택)<input type="date" name="end" value="${esc(r.end||'')}"></label>${editActs}<button class="link" type="button" data-act="rdel" data-id="${r.id}">반복 전체 삭제</button></form></li>`;
+  return `<li class="todo rti ${done?'done':''}"><button class="check" data-act="rtoggle" data-id="${r.id}" data-d="${d}" aria-pressed="${done}" aria-label="완료 표시"></button><span class="t">${esc(r.text)}<span class="msg">${RPT}${RULES[r.rule]||''}${st>1?` / ${st}회 연속`:''}</span></span>${noTag?'':`<span class="tag">${esc(spName(r.space))}</span>`}${editBtn(k)}<button class="icon" data-act="rskip" data-id="${r.id}" data-d="${d}" aria-label="이 날만 건너뛰기">×</button></li>`;
+}
+function routinePanel(){
+  const rs=state.routines||[];if(!rs.length)return '';
+  return `<section class="panel"><div class="ph"><h2>반복 일정</h2><span class="small">${rs.length}개</span></div>${rs.map(r=>{const st=streak(r),on=occurs(r,TODAY),dn=!!(r.done&&r.done[TODAY]);return `<div class="up"><span>${esc(r.text)}</span><span class="d">${on?(dn?'오늘 완료':'오늘 할 차례'):''}</span><span class="small">${esc(spName(r.space))} / ${RULES[r.rule]}${r.end?' / '+esc(r.end)+'까지':''}${st?` / ${st}회 연속`:''}</span></div>`}).join('')}</section>`;
+}
 function todoItem(t,showDate,noTag){
   const k='t:'+t.id;
-  if(ui.editing===k)return `<li class="todo editing"><form class="efm" data-tedit="${t.id}"><label class="f w">할 일<input name="text" value="${esc(t.text)}" required></label><label class="f">날짜<input type="date" name="date" value="${esc(t.date)}" required></label><label class="f">공간<select name="space">${state.spaces.map(s=>`<option value="${s.id}"${t.space===s.id?' selected':''}>${esc(s.name)}</option>`).join('')}<option value=""${!t.space?' selected':''}>기타</option></select></label>${editActs}</form></li>`;
+  if(ui.editing===k)return `<li class="todo editing"><form class="efm" data-tedit="${t.id}"><label class="f w">할 일<input name="text" value="${esc(t.text)}" required></label><label class="f">날짜<input type="date" name="date" value="${esc(t.date)}" required></label><label class="f">공간<select name="space">${state.spaces.map(s=>`<option value="${s.id}"${t.space===s.id?' selected':''}>${esc(s.name)}</option>`).join('')}<option value=""${!t.space?' selected':''}>기타</option></select></label><label class="f">반복${repeatSel('none')}</label>${editActs}</form></li>`;
   return `<li class="todo ${t.done?'done':''}"><button class="check" data-act="toggle" data-id="${t.id}" aria-pressed="${t.done}" aria-label="완료 표시"></button><span class="t">${esc(t.text)}${showDate?` <span class="small">${esc(t.date)}</span>`:''}</span>${noTag?'':`<span class="tag">${esc(spName(t.space))}</span>`}${editBtn(k)}<button class="icon" data-act="deltodo" data-id="${t.id}" aria-label="삭제">×</button></li>`;
 }
 const msDupe=x=>state.todos.some(t=>t.date===x.m.date&&t.text===x.m.title);
@@ -761,19 +783,19 @@ function hero(rev){
 }
 function weekPanel(cls,group){
   const ds=[...Array(7)].map((_,i)=>addDays(ui.week,i)),AM=allMs().filter(x=>!msDupe(x));
-  const strip=`<div class="week"><button class="wkbtn" data-act="wk" data-n="-7" aria-label="지난주">‹</button>${ds.map((d,i)=>{const n=state.todos.filter(t=>t.date===d).length+AM.filter(x=>x.m.date===d).length;return `<button class="day ${d===TODAY?'is-today':''}" data-act="day" data-d="${d}" aria-pressed="${d===ui.day}" aria-label="${dlabel(d)}, 할 일 ${n}개"><span class="wd">${WD[i]}</span><span class="dn">${parse(d).getDate()}</span><span class="dots">${'<i></i>'.repeat(Math.min(n,4))}</span></button>`}).join('')}<button class="wkbtn" data-act="wk" data-n="7" aria-label="다음 주">›</button></div>`;
+  const strip=`<div class="week"><button class="wkbtn" data-act="wk" data-n="-7" aria-label="지난주">‹</button>${ds.map((d,i)=>{const n=state.todos.filter(t=>t.date===d).length+AM.filter(x=>x.m.date===d).length+routinesOn(d).length;return `<button class="day ${d===TODAY?'is-today':''}" data-act="day" data-d="${d}" aria-pressed="${d===ui.day}" aria-label="${dlabel(d)}, 할 일 ${n}개"><span class="wd">${WD[i]}</span><span class="dn">${parse(d).getDate()}</span><span class="dots">${'<i></i>'.repeat(Math.min(n,4))}</span></button>`}).join('')}<button class="wkbtn" data-act="wk" data-n="7" aria-label="다음 주">›</button></div>`;
   const list=state.todos.filter(t=>t.date===ui.day),mlist=AM.filter(x=>x.m.date===ui.day);
   const over=ui.day===TODAY?state.todos.filter(t=>t.date<TODAY&&!t.done):[],mover=ui.day===TODAY?AM.filter(x=>x.m.date<TODAY&&!x.m.done):[];
-  const items=[...list.map(t=>({sp:t.space||'',html:todoItem(t,false,group)})),...mlist.map(x=>({sp:x.sp.id,html:msItem(x,false,group)}))];
+  const items=[...list.map(t=>({sp:t.space||'',html:todoItem(t,false,group)})),...routinesOn(ui.day).map(r=>({sp:r.space||'',html:rtItem(r,ui.day,group)})),...mlist.map(x=>({sp:x.sp.id,html:msItem(x,false,group)}))];
   const overN=over.length+mover.length;
   return `<section class="panel ${cls}"><div class="ph"><h2>${ui.day===TODAY?'오늘 할 일':dlabel(ui.day)}</h2>${ui.day!==TODAY?'<button class="link" data-act="gotoday">오늘로</button>':''}</div>${strip}
   ${overN?`<p class="small" style="margin:0">밀린 일 ${overN}개</p><ul class="list">${over.map(t=>todoItem(t,true)).join('')}${mover.map(x=>msItem(x,true)).join('')}</ul><p class="small" style="margin:12px 0 0">${dlabel(ui.day)}</p>`:''}
   ${!items.length?'<p class="empty">이날은 할 일이 없어요. 아래에 적거나, 목표에 날짜가 있는 중간 목표를 넣으면 자동으로 떠요.</p>':group?[...state.spaces.map(x=>x.id),''].filter(id=>items.some(t=>t.sp===id)).map(id=>`<div class="grp">${esc(spName(id))}</div><ul class="list">${items.filter(t=>t.sp===id).map(t=>t.html).join('')}</ul>`).join(''):`<ul class="list">${items.map(t=>t.html).join('')}</ul>`}
-  <form class="addrow" id="addTodo"><input name="text" placeholder="할 일 추가" required aria-label="할 일"><select name="space" aria-label="공간">${state.spaces.map(s=>`<option value="${s.id}">${esc(s.name)}</option>`).join('')}<option value="">기타</option></select><button class="btn" type="submit">추가</button></form></section>`;
+  <form class="addrow" id="addTodo"><input name="text" placeholder="할 일 추가" required aria-label="할 일"><select name="space" aria-label="공간">${state.spaces.map(s=>`<option value="${s.id}">${esc(s.name)}</option>`).join('')}<option value="">기타</option></select>${repeatSel()}<button class="btn" type="submit">추가</button></form></section>`;
 }
 function progPanel(){
-  const d0=ui.week,d1=addDays(ui.week,6),wk=state.todos.filter(t=>t.date>=d0&&t.date<=d1),wm=allMs().filter(x=>x.m.date>=d0&&x.m.date<=d1&&!msDupe(x));
-  return `<section class="panel"><div class="ph"><h2>이번 주 진행</h2></div>${state.spaces.map(s=>{const a=wk.filter(t=>t.space===s.id).map(t=>t.done).concat(wm.filter(x=>x.sp.id===s.id).map(x=>x.m.done)),d=a.filter(Boolean).length,p=a.length?Math.round(d/a.length*100):0;return `<div class="prog"><span>${esc(s.name)}</span><div class="bar"><span style="width:${p}%"></span></div><span class="n">${d}/${a.length}</span></div>`}).join('')}</section>`;
+  const d0=ui.week,d1=addDays(ui.week,6),wr=[];for(let i=0;i<7;i++){const d=addDays(d0,i);routinesOn(d).forEach(r=>wr.push({sp:r.space,done:!!(r.done&&r.done[d])}))}const wk=state.todos.filter(t=>t.date>=d0&&t.date<=d1),wm=allMs().filter(x=>x.m.date>=d0&&x.m.date<=d1&&!msDupe(x));
+  return `<section class="panel"><div class="ph"><h2>이번 주 진행</h2></div>${state.spaces.map(s=>{const a=wk.filter(t=>t.space===s.id).map(t=>t.done).concat(wm.filter(x=>x.sp.id===s.id).map(x=>x.m.done)).concat(wr.filter(x=>x.sp===s.id).map(x=>x.done)),d=a.filter(Boolean).length,p=a.length?Math.round(d/a.length*100):0;return `<div class="prog"><span>${esc(s.name)}</span><div class="bar"><span style="width:${p}%"></span></div><span class="n">${d}/${a.length}</span></div>`}).join('')}</section>`;
 }
 function upPanel(c){
   let ms=allMs().filter(x=>!x.m.done);ms=c?ms.filter(x=>x.m.date>=c.start&&x.m.date<=c.end):ms.filter(x=>x.m.date>=TODAY);
@@ -806,7 +828,7 @@ function home(){
   const strip=`<div class="chapters" role="group" aria-label="챕터">${cs.map(x=>chapBtn(x,c)).join('')}</div>`;
   if(L==='a2')return hero()+chapTimeline(c)+`<div class="grid">${weekPanel('s7')}<div class="s5 stack">${upPanel(c)}${progPanel()}<div>${chapEdit}</div></div></div>`;
   if(L==='a3')return hero(true)+strip+`<div class="grid">${weekPanel('s7',true)}<div class="s5 stack">${progPanel()}${upPanel(c)}<div>${chapEdit}</div></div></div>`;
-  return hero()+strip+`<div class="grid">${weekPanel('s7')}<div class="s5 stack">${upPanel(c)}${progPanel()}<div>${chapEdit}</div></div></div>`;
+  return hero()+strip+`<div class="grid">${weekPanel('s7')}<div class="s5 stack">${upPanel(c)}${progPanel()}${routinePanel()}<div>${chapEdit}</div></div></div>`;
 }
 function spacePage(sp){
   const n=sp.blocks.length;
@@ -831,7 +853,7 @@ function renderDlg(){
   if(ui.dlg==='spaces'){
     h=`<div class="dlg-head"><h2>작업 공간</h2><button class="icon" data-act="closedlg" aria-label="닫기">×</button></div><div class="sheet-list">${state.spaces.map(s=>`<button class="sheet-item" data-view="${s.id}"${ui.view===s.id?' aria-current="page"':''}><span>${esc(s.name)}</span><span class="jp" lang="ja">${esc(s.jp)}</span></button>`).join('')}<button class="sheet-item" data-act="dlg" data-d="space" style="color:var(--accent)">+ 공간 추가</button></div>`;
   }else if(ui.dlg==='quick'){
-    h=`<div class="dlg-head"><h2>할 일 추가</h2><button class="icon" data-act="closedlg" aria-label="닫기">×</button></div><form class="fgrid" data-quick="1"><label class="f w">할 일<input name="text" required autocomplete="off"></label><label class="f">공간<select name="space">${state.spaces.map(s=>`<option value="${s.id}"${ui.view===s.id?' selected':''}>${esc(s.name)}</option>`).join('')}<option value="">기타</option></select></label><label class="f">날짜<input type="date" name="date" value="${ui.day}" required></label><button class="btn" type="submit">추가</button></form>`;
+    h=`<div class="dlg-head"><h2>할 일 추가</h2><button class="icon" data-act="closedlg" aria-label="닫기">×</button></div><form class="fgrid" data-quick="1"><label class="f w">할 일<input name="text" required autocomplete="off"></label><label class="f">공간<select name="space">${state.spaces.map(s=>`<option value="${s.id}"${ui.view===s.id?' selected':''}>${esc(s.name)}</option>`).join('')}<option value="">기타</option></select></label><label class="f">날짜<input type="date" name="date" value="${ui.day}" required></label><label class="f w">반복${repeatSel()}</label><button class="btn" type="submit">추가</button></form>`;
   }else if(ui.dlg==='review'){
     const rb=ui.rv&&blockOf(ui.rv.bid),bk=rb&&byId(data(rb),ui.rv.id);
     if(bk){const r=bk.review||{};h=`<div class="dlg-head"><h2>독서 노트</h2><button class="icon" data-act="closedlg" aria-label="닫기">×</button></div><p class="small" style="margin:0 0 6px"><b>${esc(bk.title)}</b>${bk.author?' / '+esc(bk.author):''}</p>
@@ -1095,6 +1117,7 @@ function filesBlock(b,sp){
 function searchIndex(){
   const R=[],add=(kind,title,sub,text,go)=>R.push({kind,title:String(title||''),sub,text:String(text||''),go});
   state.todos.forEach(t=>add('todo',t.text,`${spName(t.space)} / ${t.date}${t.done?' / 완료':''}`,'',{day:t.date}));
+  (state.routines||[]).forEach(r=>add('todo',r.text,`${spName(r.space)} / 반복 ${RULES[r.rule]}`,'',{day:TODAY}));
   state.keyDates.forEach(k=>add('etc',k.title,`중요 일정 / ${k.date}`,'',{view:'home'}));
   state.chapters.forEach(c=>add('etc',c.title,`챕터 / ${c.start} ~ ${c.end}`,c.memo,{view:'home'}));
   state.spaces.forEach(sp=>sp.blocks.forEach(b=>{const D=state.data[b.id],P=`${sp.name} › ${b.title}`,go={view:sp.id,block:b.id};if(!D)return;
@@ -1164,7 +1187,7 @@ function connCards(){
   const ic=state.ics||{},url=icsUrl();
   const cal=`<div class="ccard"><div class="ch"><span class="bi c1">${ICON.cal}</span><b>애플 캘린더 구독</b>${url?'<span class="gd"><i></i>주소 있음</span>':''}</div>
   <p class="small">아래 항목이 아이폰, 아이패드, 맥 캘린더에 "나의 작업 공간" 캘린더로 보여요. 작업 공간에서 바꾸면 캘린더에 반영돼요(한 시간 안쪽).</p>
-  ${url?`<div class="opts">${[['keys','중요 일정'],['ms','중간 목표'],['todos','할 일'],['chapters','챕터 기간']].map(([k,l])=>`<label class="chkl"><input type="checkbox" data-icsopt="${k}"${ic[k]!==false?' checked':''}> ${l}</label>`).join('')}</div>
+  ${url?`<div class="opts">${[['keys','중요 일정'],['ms','중간 목표'],['todos','할 일'],['routines','반복 일정'],['chapters','챕터 기간']].map(([k,l])=>`<label class="chkl"><input type="checkbox" data-icsopt="${k}"${ic[k]!==false?' checked':''}> ${l}</label>`).join('')}</div>
   <div class="addrow" style="flex-wrap:wrap"><a class="btn sm" href="${esc(url.replace(/^https:/,'webcal:'))}">애플 캘린더에 추가</a><button class="btn ghost sm" data-act="icscopy">주소 복사</button><button class="link" data-act="icsmake">주소 새로 만들기</button></div>`:`<button class="btn ghost sm" data-act="icsmake">구독 주소 만들기</button>`}</div>`;
   return drive+ai+cal;
 }
@@ -1243,8 +1266,8 @@ document.addEventListener('click',e=>{
 document.addEventListener('submit',e=>{
   e.preventDefault();const f=e.target,fd=Object.fromEntries(new FormData(f)),ds=f.dataset;
   if(ds.login){loginMsg('');sb.auth.signInWithPassword({email:fd.email.trim(),password:fd.pw}).then(async({data,error})=>{if(error){loginMsg('로그인하지 못했어요. 이메일과 비밀번호를 확인하세요.');return}session=data.session;dlg.close();await pull();render();toast('로그인했어요')});return}
-  if(ds.quick){state.todos.push({id:uid(),text:fd.text.trim(),date:fd.date,space:fd.space,done:false});dlg.close();toast(fd.date===TODAY?'오늘 할 일에 추가했어요':fd.date+' 할 일에 추가했어요');save();render();return}
-  if(f.id==='addTodo')state.todos.push({id:uid(),text:fd.text.trim(),date:ui.day,space:fd.space,done:false});
+  if(ds.quick){addTask(fd.text,fd.date,fd.space,fd.repeat);dlg.close();toast(fd.date===TODAY?'오늘 할 일에 추가했어요':fd.date+' 할 일에 추가했어요');save();render();return}
+  if(f.id==='addTodo')addTask(fd.text,ui.day,fd.space,fd.repeat);
   else if(ds.list){const b=blockOf(ds.list);data(b).unshift({id:uid(),...fd,...(b.type==='links'?{status:'예정'}:{}),...(b.type==='checklist'?{done:false}:{}),...(b.type==='books'?{status:'읽는 중'}:{})});toast('저장했어요')}
   else if(ds.ms){const[bid,gid]=ds.ms.split('|');byId(data(blockOf(bid)),gid).ms.push({id:uid(),title:fd.title.trim(),date:fd.date,done:false})}
   else if(ds.goal)data(blockOf(ds.goal)).push({id:uid(),title:fd.title.trim(),due:fd.due,ms:[]});
@@ -1346,16 +1369,20 @@ document.addEventListener('click',e=>{
   if(a==='eopen'){ui.editing=el.dataset.k;render();const f=document.querySelector('.editing input, .editing textarea');if(f){f.focus();if(f.select)f.select()}return}
   if(a==='ecancel'){ui.editing=null;render();return}
   if(a==='review'){ui.rv={bid:el.dataset.b,id:el.dataset.id};openDlg('review');return}
+  if(a==='rtoggle'){const r=byId(state.routines||[],el.dataset.id);if(!r)return;r.done=r.done||{};const d=el.dataset.d;if(r.done[d])delete r.done[d];else r.done[d]=true;save();render();return}
+  if(a==='rskip'){const r=byId(state.routines||[],el.dataset.id);if(!r||!confirm('이 날만 건너뛸까요? 반복 전체를 지우려면 연필 아이콘에서 삭제하세요.'))return;(r.skip=r.skip||{})[el.dataset.d]=true;save();render();return}
+  if(a==='rdel'){if(!confirm('이 반복 일정을 모든 날짜에서 삭제할까요?'))return;state.routines=(state.routines||[]).filter(r=>r.id!==el.dataset.id);ui.editing=null;save();render();return}
   if(a==='msdel'){if(!confirm('이 중간 목표를 삭제할까요?'))return;const g=byId(data(blockOf(el.dataset.b)),el.dataset.g);g.ms=g.ms.filter(m=>m.id!==el.dataset.id);ui.editing=null;save();render();return}
 });
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&ui.editing&&!ui.dlg){ui.editing=null;render()}});
 document.addEventListener('submit',e=>{
-  const f=e.target,ds=f.dataset;if(!(ds.edit||ds.gedit||ds.medit||ds.tedit||ds.review))return;
+  const f=e.target,ds=f.dataset;if(!(ds.edit||ds.gedit||ds.medit||ds.tedit||ds.redit||ds.review))return;
   e.preventDefault();const fd=Object.fromEntries(new FormData(f)),T=v=>typeof v==='string'?v.trim():v;
   if(ds.edit){const[bid,id]=ds.edit.split('|');const it=byId(data(blockOf(bid)),id);if(it)Object.keys(fd).forEach(k=>it[k]=T(fd[k]))}
   else if(ds.gedit){const[bid,gid]=ds.gedit.split('|');const g=byId(data(blockOf(bid)),gid);g.title=T(fd.title);g.due=fd.due}
   else if(ds.medit){const[bid,gid,mid]=ds.medit.split('|');const m=byId(byId(data(blockOf(bid)),gid).ms,mid);m.title=T(fd.title);m.date=fd.date}
-  else if(ds.tedit){const t=byId(state.todos,ds.tedit);t.text=T(fd.text);t.date=fd.date;t.space=fd.space}
+  else if(ds.tedit){const t=byId(state.todos,ds.tedit);if(fd.repeat&&fd.repeat!=='none'){state.todos=state.todos.filter(x=>x!==t);addTask(fd.text,fd.date,fd.space,fd.repeat)}else{t.text=T(fd.text);t.date=fd.date;t.space=fd.space}}
+  else if(ds.redit){const r=byId(state.routines||[],ds.redit);if(fd.repeat==='none'){state.routines=state.routines.filter(x=>x!==r);addTask(fd.text,ui.day,fd.space,'none')}else Object.assign(r,{text:T(fd.text),space:fd.space,rule:fd.repeat,start:fd.start,end:fd.end||''})}
   else if(ds.review){const bk=byId(data(blockOf(ui.rv.bid)),ui.rv.id);bk.review={stars:+fd.stars||0,line:T(fd.line||''),quote:T(fd.quote||''),text:T(fd.text||''),date:TODAY};bk.end=fd.end||bk.end;bk.status='다 읽음';dlg.close()}
   ui.editing=null;save();render();toast('저장했어요');
 });
