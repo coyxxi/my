@@ -502,6 +502,66 @@ mark{background:#FFE7A0;color:inherit;border-radius:3px;padding:0 1px}
 .rti .msg .ic{width:12px;height:12px}
 .addrow select[name=repeat]{width:auto}
 @media (max-width:760px){.rti .msg{display:flex;margin:2px 0 0}}
+
+/* ===== v8: 가독성, 공간 할 일, 먼슬리, 데이터 ===== */
+.chapters{gap:10px;margin-bottom:24px}
+.chap{padding:12px 16px}
+.chap .ct{font-size:15px}.chap .small{font-size:12.5px}
+.list{display:flex;flex-direction:column}
+.todo{min-height:46px;padding:8px 2px}
+.todo .t{font-size:15px}
+.todo.done{order:5}
+.todo.done .t{opacity:.6}
+.tag{font-size:11.5px}
+.ovl{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:#B4532A;background:#FBEDE6;border-radius:999px;padding:3px 10px;margin:2px 0 6px}
+.ovl::before{content:"";width:6px;height:6px;border-radius:50%;background:#E08A5E}
+.ovlist .todo{border-left:3px solid #E08A5E;padding-left:10px;border-top:0;margin-bottom:2px}
+.dayhd{font-size:12px;color:var(--muted);font-weight:600;margin:14px 0 2px}
+#addTodo{margin-top:10px;gap:6px}
+#addTodo input,.tadd input{padding:7px 12px;font-size:14px;height:38px}
+#addTodo select,.tadd select{font-size:13px;padding:6px 8px;height:38px;max-width:130px;width:auto}
+#addTodo .btn,.tadd .btn{padding:7px 14px;font-size:13px;height:38px}
+.tadd input[type=date]{width:150px;flex:none}
+.up .d{background:var(--soft);border-radius:999px;padding:1px 9px;font-size:12px;font-weight:600;align-self:start;white-space:nowrap}
+.prog .bar,.mcal .bar{height:6px;border-radius:999px}
+.prog .bar span{border-radius:999px}
+.tfil{padding:0;border:0;margin:0 0 6px}
+.dmeter{display:flex;flex-direction:column;gap:4px}
+.dmeter .bar{height:6px;border-radius:999px}
+.mcal{margin-top:28px;border:1px solid var(--line);border-radius:16px;padding:16px 18px;background:var(--surface)}
+.mnav{display:inline-flex;align-items:center;gap:6px}
+.mnav b{font-size:15px;min-width:92px;text-align:center}
+.cal{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px;margin-top:8px}
+.cal .wd{font-size:11px;color:var(--muted);text-align:center;padding:2px 0}
+.cal .c{all:unset;box-sizing:border-box;cursor:pointer;min-height:78px;border-radius:8px;background:var(--field);padding:5px 6px;font-size:11px;display:flex;flex-direction:column;gap:2px;overflow:hidden;min-width:0}
+.cal .c:hover{outline:1px solid var(--line)}
+.cal .c b{font-size:12px;font-weight:600}
+.cal .c.out{opacity:.4}
+.cal .c.today{outline:2px solid var(--accent)}
+.cal .c.h1,.lg.h1{background:#E8EEF8}.cal .c.h2,.lg.h2{background:#D3DEF0}.cal .c.h3,.lg.h3{background:#B9CBE6}
+.cal .ev{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-radius:4px;padding:0 4px;background:var(--surface)}
+.cal .ev.k{color:#B4532A;font-weight:600}.cal .ev.m{color:var(--accent)}.cal .ev.dn{text-decoration:line-through;opacity:.6}
+.cal .more{font-size:10px;color:var(--muted)}
+.cal .dots{display:none;gap:2px}
+.cal .dots i{width:5px;height:5px;border-radius:50%;background:var(--accent)}
+.legend{display:flex;gap:6px 14px;font-size:11px;color:var(--muted);margin-top:8px;flex-wrap:wrap;align-items:center}
+.legend .lg{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:4px;vertical-align:-1px}
+.legend .lm{color:var(--accent)}.legend .lk{color:#B4532A;font-weight:600}
+.arow{border-top:1px solid var(--line);padding:10px 0}
+.arow>summary{cursor:pointer;display:flex;gap:10px;align-items:baseline}
+.arch2{margin:6px 0 0 8px}.arch2>summary{cursor:pointer;font-size:13px}
+@media (prefers-color-scheme: dark){
+  .ovl{background:#3A2A22;color:#F0A884}
+  .cal .c.h1,.lg.h1{background:#1F2B3D}.cal .c.h2,.lg.h2{background:#27395A}.cal .c.h3,.lg.h3{background:#34507A}
+  .cal .ev.k,.legend .lk{color:#F0A884}
+}
+@media (max-width:760px){
+  .cal .c{min-height:46px;padding:4px}
+  .cal .ev,.cal .more{display:none}
+  .cal .dots{display:flex}
+  .mcal{padding:12px}
+  .tadd{flex-wrap:wrap}.tadd input[name=text]{flex:1 1 100%}.tadd input[type=date]{flex:1;width:auto}
+}
 </style>
 
 </head>
@@ -521,16 +581,19 @@ mark{background:#FFE7A0;color:inherit;border-radius:3px;padding:0 1px}
 <dialog id="dlg"><div id="dlgBody"></div></dialog>
 <input type="file" id="importFile" accept="application/json,.json" hidden>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script src="config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.3/dist/umd/supabase.js"></script>
 <script>
 /* ===== 동기화 설정: Supabase의 Project URL과 Publishable key를 따옴표 안에 붙여넣으세요 ===== */
-const CONFIG={
+const CONFIG_DEFAULT={
   SUPABASE_URL:'https://sggopzkdznrpixcgdpjf.supabase.co',
   SUPABASE_ANON_KEY:'sb_publishable_mP2IQSLYwoJhsEqx8UX1Fg_1CwVk2GJ',
   GOOGLE_CLIENT_ID:'634088716436-b8j56nkjfbn8kg8h58qbuam24ldqrl56.apps.googleusercontent.com',
   AI_FUNCTION:'ai-organize',
   CAL_FUNCTION:'calendar-feed'
 };
+/* config.js 가 있으면 그 값을 우선해요 */
+const CONFIG=Object.assign({},CONFIG_DEFAULT,window.WS_CONFIG||{});
 /* ===================================================================================== */
 const KEY='lifeworkspace.v3';
 const WD=['월','화','수','목','금','토','일'];
@@ -561,6 +624,7 @@ const BT={
   info:{name:'기본 정보',desc:'항목과 내용, 복사 버튼'},
   works:{name:'작업물',desc:'작업 기록과 포트폴리오 후보'},
   books:{name:'독서 노트',wide:1,desc:'책별 상태와 느낀 점'},
+  tasks:{name:'할 일',wide:1,desc:'이 공간의 할 일, 반복 일정, 중간 목표 모아보기'},
   inbox:{name:'메일·문서 정리함',wide:1,desc:'메일이나 파일을 넣으면 할 일로 정리'},
   files:{name:'파일함',wide:1,desc:'Google Drive에 올리고 썸네일로 관리'}
 };
@@ -624,27 +688,70 @@ function seed(){
 function load(){try{const r=localStorage.getItem(KEY);if(r){const s=JSON.parse(r);if(s&&Array.isArray(s.spaces)&&s.data)return migrate(s)}}catch(e){}return migrate(seed())}
 const SYNC_READY=/^https:\/\//.test(CONFIG.SUPABASE_URL)&&CONFIG.SUPABASE_ANON_KEY.length>20&&!/여기에/.test(CONFIG.SUPABASE_ANON_KEY)&&!!window.supabase;
 const sb=SYNC_READY?window.supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY):null;
-let session=null,pushTimer=null,syncState='local';
+let session=null,pushTimer=null,syncState='local',pushing=false,pendingPush=false,forcePush=false;
 const SYNC_TEXT={local:'이 기기에만 저장',out:'로그인하면 동기화돼요',saving:'저장 중',ok:'동기화됨',off:'오프라인, 연결되면 저장해요',err:'동기화 오류, 잠시 뒤 다시 시도해요'};
 function setSync(s){syncState=s;const el=document.getElementById('syncLabel');if(el){el.textContent=SYNC_TEXT[s];el.dataset.s=s}}
 function writeLocal(){try{localStorage.setItem(KEY,JSON.stringify(state))}catch(e){}}
+/* 마지막으로 서버와 맞춘 상태(base)를 기억해 두고, 양쪽에서 바뀐 부분을 합쳐요 */
+const BASEKEY=KEY+'.base';
+let base=(()=>{try{return JSON.parse(localStorage.getItem(BASEKEY)||'null')}catch(e){return null}})();
+function setBase(o){base=o?JSON.parse(JSON.stringify(o)):null;try{base?localStorage.setItem(BASEKEY,JSON.stringify(base)):localStorage.removeItem(BASEKEY)}catch(e){}}
+function same(a,b){if(a===b)return true;if(a===null||b===null||typeof a!=='object'||typeof b!=='object')return false;if(Array.isArray(a)!==Array.isArray(b))return false;if(Array.isArray(a)){if(a.length!==b.length)return false;for(let i=0;i<a.length;i++)if(!same(a[i],b[i]))return false;return true}const ka=Object.keys(a),kb=Object.keys(b);if(ka.length!==kb.length)return false;for(const k of ka)if(!same(a[k],b[k]))return false;return true}
+const isObj=v=>!!v&&typeof v==='object'&&!Array.isArray(v);
+const idArr=v=>Array.isArray(v)&&v.every(x=>isObj(x)&&typeof x.id==='string');
+function merge3(b,l,r){
+  if(same(l,r))return l;if(same(b,l))return r;if(same(b,r))return l;
+  if(isObj(l)&&isObj(r)){const o={},bb=isObj(b)?b:{};new Set([...Object.keys(l),...Object.keys(r)]).forEach(k=>{const v=merge3(bb[k],l[k],r[k]);if(v!==undefined)o[k]=v});return o}
+  if(idArr(l)&&idArr(r)&&(l.length||r.length)){
+    const bm=new Map((Array.isArray(b)?b:[]).filter(isObj).map(x=>[x.id,x])),lm=new Map(l.map(x=>[x.id,x])),rm=new Map(r.map(x=>[x.id,x])),out=[];
+    l.forEach(x=>{const bi=bm.get(x.id),ri=rm.get(x.id);if(ri)out.push(merge3(bi,x,ri));else if(!bi||!same(bi,x))out.push(x)});
+    r.forEach((x,i)=>{if(lm.has(x.id))return;const bi=bm.get(x.id);if(bi&&same(bi,x))return;out.splice(Math.min(i,out.length),0,x)});
+    return out;
+  }
+  return l;
+}
 function save(){state._updated=Date.now();writeLocal();schedulePush()}
 function schedulePush(){if(!sb||!session)return;setSync('saving');clearTimeout(pushTimer);pushTimer=setTimeout(push,1200)}
+async function remoteStamp(){const {data,error}=await sb.from('workspace').select('stamp:data->_updated').eq('user_id',session.user.id).maybeSingle();if(error)throw error;return data?data.stamp:null}
+async function fetchRemote(){const {data,error}=await sb.from('workspace').select('data').eq('user_id',session.user.id).maybeSingle();if(error)throw error;return data&&data.data}
 async function push(){
-  if(!sb||!session)return;
-  if(!navigator.onLine){setSync('off');return}
-  const {error}=await sb.from('workspace').upsert({user_id:session.user.id,data:state,updated_at:new Date(state._updated||Date.now()).toISOString()});
-  if(error){console.error(error);setSync('err');clearTimeout(pushTimer);pushTimer=setTimeout(push,15000)}else setSync('ok');
+  if(!sb||!session)return;if(!navigator.onLine){setSync('off');return}
+  if(pushing){pendingPush=true;return}pushing=true;
+  const uidv=session.user.id,stamp=o=>new Date(o._updated||Date.now()).toISOString();
+  try{
+    if(forcePush){const snap=JSON.parse(JSON.stringify(state));const {error}=await sb.from('workspace').upsert({user_id:uidv,data:snap,updated_at:stamp(snap)});if(error)throw error;forcePush=false;setBase(snap);setSync('ok');return}
+    for(let tries=0;tries<4;tries++){
+      if(!base){const remote=await fetchRemote();if(remote){const m=merge3(null,state,remote);m._updated=Date.now();state=migrate(m);writeLocal();setBase(remote);render()}}
+      const snap=JSON.parse(JSON.stringify(state));
+      if(!base){
+        const {error}=await sb.from('workspace').insert({user_id:uidv,data:snap,updated_at:stamp(snap)});
+        if(!error){setBase(snap);setSync('ok');return}
+        if(error.code==='23505')continue;throw error;
+      }
+      /* 서버 내용이 내가 마지막으로 본 것과 같을 때만 저장해요 (동시에 고쳐도 덮어쓰지 않게) */
+      const {data:rows,error}=await sb.from('workspace').update({data:snap,updated_at:stamp(snap)}).eq('user_id',uidv).eq('data->>_updated',String(base._updated)).select('user_id');
+      if(error)throw error;
+      if(rows&&rows.length){setBase(snap);setSync('ok');return}
+      const remote=await fetchRemote();
+      if(!remote){setBase(null);continue}
+      const merged=merge3(base,state,remote);merged._updated=Date.now();state=migrate(merged);writeLocal();setBase(remote);render();toast('다른 기기에서 바뀐 내용과 합쳤어요');
+    }
+    throw new Error('동기화 충돌이 계속돼요');
+  }catch(e){console.error(e);setSync('err');clearTimeout(pushTimer);pushTimer=setTimeout(push,15000)}
+  finally{pushing=false;if(pendingPush){pendingPush=false;schedulePush()}}
 }
 async function pull(){
   if(!sb||!session||!navigator.onLine){if(session)setSync('off');return}
-  const {data:row,error}=await sb.from('workspace').select('data').eq('user_id',session.user.id).maybeSingle();
-  if(error){console.error(error);setSync('err');return}
+  if(pushing||syncState==='saving')return;
+  let remote;try{remote=await fetchRemote()}catch(e){console.error(e);setSync('err');return}
   const linkKey=KEY+'.linked',linked=localStorage.getItem(linkKey)===session.user.id;
-  const remote=row&&row.data,rt=(remote&&remote._updated)||0,lt=state._updated||0;
-  if(remote&&(!linked||rt>lt)){state=remote;if(!state.v5){migrate(state);save()}else writeLocal();render();if(syncState!=='saving')setSync('ok')}
-  else if(!remote||lt>rt){if(!state._updated)state._updated=Date.now();writeLocal();await push()}
-  else setSync('ok');
+  const dirty=!base||(state._updated||0)!==(base._updated||0);
+  const adopt=r=>{const was=!!(r.v5&&r.v8);state=migrate(r);writeLocal();setBase(r);render();if(!was)save();else setSync('ok')};
+  if(!remote){if(!state._updated)state._updated=Date.now();writeLocal();await push()}
+  else if(!linked)adopt(remote);
+  else if(base&&String(remote._updated)===String(base._updated)){if(dirty)await push();else setSync('ok')}
+  else if(!dirty)adopt(remote);
+  else{const merged=merge3(base,state,remote);merged._updated=Date.now();state=migrate(merged);writeLocal();setBase(remote);render();await push()}
   try{localStorage.setItem(linkKey,session.user.id)}catch(e){}
 }
 async function initSync(){
@@ -655,6 +762,7 @@ async function initSync(){
 }
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')pull()});
 window.addEventListener('online',()=>{if(session)push()});
+setInterval(async()=>{if(document.visibilityState!=='visible'||!sb||!session||pushing||syncState==='saving')return;try{const st=await remoteStamp();if(st!=null&&base&&String(st)!==String(base._updated))pull()}catch(e){}},45000);
 function loginMsg(m){const el=document.getElementById('loginMsg');if(el)el.textContent=m}
 let state=load();
 const ui={view:'home',day:TODAY,week:monday(TODAY),edit:false,chap:null,dlg:null};
@@ -741,7 +849,7 @@ function moneyBlock(b){
   ${hist?`<h3>기록</h3><ul class="list">${hist}</ul>`:''}`};
 }
 function blockHtml(sp,b,i,n){
-  const r=b.type==='goals'?goalsBlock(b,sp):b.type==='money'?moneyBlock(b):b.type==='inbox'?inboxBlock(b,sp):b.type==='files'?filesBlock(b,sp):listBlock(b);
+  const r=b.type==='goals'?goalsBlock(b,sp):b.type==='money'?moneyBlock(b):b.type==='tasks'?tasksBlock(b,sp):b.type==='inbox'?inboxBlock(b,sp):b.type==='files'?filesBlock(b,sp):listBlock(b);
   const ctl=ui.edit?`<button class="icon" data-act="bmove" data-s="${sp.id}" data-b="${b.id}" data-n="-1" ${i===0?'disabled':''} aria-label="위로">↑</button><button class="icon" data-act="bmove" data-s="${sp.id}" data-b="${b.id}" data-n="1" ${i===n-1?'disabled':''} aria-label="아래로">↓</button><button class="icon" data-act="bdel" data-s="${sp.id}" data-b="${b.id}" aria-label="블록 삭제">×</button>`:'';
   const title=ui.edit?`<input class="bt" data-bt="${sp.id}|${b.id}" value="${esc(b.title)}" aria-label="블록 이름">`:`<h2>${esc(b.title)}</h2>`;
   return `<section class="panel ${BT[b.type].wide?'wide':''}" id="b-${b.id}"><div class="ph">${ui.edit?bicon(b.type):''}${title}<span class="small">${ui.edit?BT[b.type].name:r.head}</span>${ctl}</div>${r.body}</section>`;
@@ -789,7 +897,7 @@ function weekPanel(cls,group){
   const items=[...list.map(t=>({sp:t.space||'',html:todoItem(t,false,group)})),...routinesOn(ui.day).map(r=>({sp:r.space||'',html:rtItem(r,ui.day,group)})),...mlist.map(x=>({sp:x.sp.id,html:msItem(x,false,group)}))];
   const overN=over.length+mover.length;
   return `<section class="panel ${cls}"><div class="ph"><h2>${ui.day===TODAY?'오늘 할 일':dlabel(ui.day)}</h2>${ui.day!==TODAY?'<button class="link" data-act="gotoday">오늘로</button>':''}</div>${strip}
-  ${overN?`<p class="small" style="margin:0">밀린 일 ${overN}개</p><ul class="list">${over.map(t=>todoItem(t,true)).join('')}${mover.map(x=>msItem(x,true)).join('')}</ul><p class="small" style="margin:12px 0 0">${dlabel(ui.day)}</p>`:''}
+  ${overN?`<span class="ovl">밀린 일 ${overN}개</span><ul class="list ovlist">${over.map(t=>todoItem(t,true)).join('')}${mover.map(x=>msItem(x,true)).join('')}</ul><div class="dayhd">${dlabel(ui.day)}</div>`:''}
   ${!items.length?'<p class="empty">이날은 할 일이 없어요. 아래에 적거나, 목표에 날짜가 있는 중간 목표를 넣으면 자동으로 떠요.</p>':group?[...state.spaces.map(x=>x.id),''].filter(id=>items.some(t=>t.sp===id)).map(id=>`<div class="grp">${esc(spName(id))}</div><ul class="list">${items.filter(t=>t.sp===id).map(t=>t.html).join('')}</ul>`).join(''):`<ul class="list">${items.map(t=>t.html).join('')}</ul>`}
   <form class="addrow" id="addTodo"><input name="text" placeholder="할 일 추가" required aria-label="할 일"><select name="space" aria-label="공간">${state.spaces.map(s=>`<option value="${s.id}">${esc(s.name)}</option>`).join('')}<option value="">기타</option></select>${repeatSel()}<button class="btn" type="submit">추가</button></form></section>`;
 }
@@ -844,14 +952,14 @@ function settings(){
   <div class="tpl-grid">${state.templates.map(tplCard).join('')}</div>${tplEditor()}
   <div class="grid" style="margin-top:34px"><section class="panel s5"><div class="ph"><h2>작업 공간</h2><button class="link" data-act="dlg" data-d="space">+ 공간 추가</button></div>${state.spaces.map((s,i)=>`<div class="tblk"><span style="flex:1">${esc(s.name)}</span><button class="icon" data-act="smove" data-s="${s.id}" data-n="-1" ${i===0?'disabled':''} aria-label="위로">↑</button><button class="icon" data-act="smove" data-s="${s.id}" data-n="1" ${i===state.spaces.length-1?'disabled':''} aria-label="아래로">↓</button><button class="icon" data-act="delspace" data-s="${s.id}" aria-label="삭제">×</button></div>`).join('')}
   <h3>동기화</h3><p class="small" style="margin:0 0 10px">${!sb?'아직 동기화가 꺼져 있어요.':session?esc(session.user.email)+' 계정으로 모든 기기와 동기화 중이에요.':'로그인하지 않아 이 기기에만 저장되고 있어요.'}</p>${sb?(session?'<button class="btn ghost sm" data-act="logout">로그아웃</button>':'<button class="btn ghost sm" data-act="login">로그인</button>'):''}
-  <h3>백업</h3><p class="small" style="margin:0 0 10px">한 달에 한 번쯤 내려받아 두면 안심이에요.</p><div class="addrow" style="flex-wrap:wrap"><button class="btn ghost sm" data-act="export">백업 내보내기</button><button class="btn ghost sm" data-act="import">불러오기</button><button class="btn danger sm" data-act="reset">예시로 초기화</button></div></section>
-  <section class="s7 stack"><div class="ph" style="margin:0"><h2>연결</h2></div>${connCards()}</section></div>`;
+  <h3>백업</h3><p class="small" style="margin:0 0 10px">한 달에 한 번쯤 내려받아 두면 안심이에요.</p><div class="addrow" style="flex-wrap:wrap"><button class="btn ghost sm" data-act="export">백업 내보내기</button><button class="btn ghost sm" data-act="import">불러오기</button><button class="btn danger sm" data-act="reset">예시로 초기화</button></div>${dataPanel()}</section>
+  <section class="s7 stack"><div class="ph" style="margin:0"><h2>연결</h2></div>${connCards()}</section></div>${monthlyCal()}`;
 }
 function openDlg(d){ui.dlg=d;renderDlg();if(!dlg.open)dlg.showModal()}
 function renderDlg(){
   const box=document.getElementById('dlgBody');let h='';
   if(ui.dlg==='spaces'){
-    h=`<div class="dlg-head"><h2>작업 공간</h2><button class="icon" data-act="closedlg" aria-label="닫기">×</button></div><div class="sheet-list">${state.spaces.map(s=>`<button class="sheet-item" data-view="${s.id}"${ui.view===s.id?' aria-current="page"':''}><span>${esc(s.name)}</span><span class="jp" lang="ja">${esc(s.jp)}</span></button>`).join('')}<button class="sheet-item" data-act="dlg" data-d="space" style="color:var(--accent)">+ 공간 추가</button></div>`;
+    h=`<div class="dlg-head"><h2>작업 공간</h2><button class="icon" data-act="closedlg" aria-label="닫기">×</button></div><div class="sheet-list">${state.spaces.map(s=>`<button class="sheet-item" data-view="${s.id}"${ui.view===s.id?' aria-current="page"':''}><span>${esc(s.name)}</span></button>`).join('')}<button class="sheet-item" data-act="dlg" data-d="space" style="color:var(--accent)">+ 공간 추가</button></div>`;
   }else if(ui.dlg==='quick'){
     h=`<div class="dlg-head"><h2>할 일 추가</h2><button class="icon" data-act="closedlg" aria-label="닫기">×</button></div><form class="fgrid" data-quick="1"><label class="f w">할 일<input name="text" required autocomplete="off"></label><label class="f">공간<select name="space">${state.spaces.map(s=>`<option value="${s.id}"${ui.view===s.id?' selected':''}>${esc(s.name)}</option>`).join('')}<option value="">기타</option></select></label><label class="f">날짜<input type="date" name="date" value="${ui.day}" required></label><label class="f w">반복${repeatSel()}</label><button class="btn" type="submit">추가</button></form>`;
   }else if(ui.dlg==='review'){
@@ -863,6 +971,8 @@ function renderDlg(){
     <label class="f w">느낀 점과 적용할 점<textarea name="text" style="min-height:170px">${esc(r.text||'')}</textarea></label>
     <label class="f">다 읽은 날<input type="date" name="end" value="${esc(bk.end||TODAY)}"></label>
     <button class="btn" type="submit">저장</button></form>`}
+  }else if(ui.dlg==='archive'){
+    h=`<div class="dlg-head"><h2>보관함</h2><button class="icon" data-act="closedlg" aria-label="닫기">×</button></div><p class="small" style="margin:0 0 10px">90일이 지난 완료한 일과 메일 원문이 달별로 모여 있어요.</p>${archiveDlg()}`;
   }else if(ui.dlg==='search'){
     h=`<div class="sinput">${ICON.search}<input id="sq" type="text" enterkeyhint="search" placeholder="검색어를 입력하세요" value="${esc(ui.sq)}" autocomplete="off" aria-label="검색"><button class="icon" data-act="closedlg" aria-label="닫기">×</button></div><div class="sfilters" id="sfilters"></div><div class="sbody" id="sresults"></div><div class="sfoot"><span>↑↓ 이동</span><span>enter 열기</span><span>esc 닫기</span></div>`;
   }else if(ui.dlg==='login'){
@@ -908,7 +1018,7 @@ const ICON={
 const TINT={goals:'c1',notes:'c2',links:'c3',checklist:'c3',money:'c4',wins:'c5',copy:'c4',info:'c2',works:'c5',books:'c5',inbox:'c6',files:'c6'};
 const bicon=(t,cls)=>`<span class="bi ${TINT[t]||'c2'} ${cls||''}">${ICON[t]||ICON.notes}</span>`;
 function migrate(s){
-  if(!s||s.v5)return s;
+  if(!s)return s;if(s.v5)return migrate8(s);
   const B=(type,title)=>({id:uid(),type,title});
   const t=(s.templates||[]).find(x=>x.name==='업무용');
   if(t&&!t.blocks.some(b=>b.type==='inbox'))t.blocks.unshift({type:'inbox',title:'메일·문서 정리함'});
@@ -920,7 +1030,7 @@ function migrate(s){
       if(!sp.blocks.some(b=>b.type==='inbox'))sp.blocks.splice(1,0,B('inbox','메일·문서 정리함'));
     }
   });
-  s.v5=true;return s;
+  s.v5=true;return migrate8(s);
 }
 const loadScript=(()=>{const m={};return u=>m[u]||(m[u]=new Promise((res,rej)=>{const sc=document.createElement('script');sc.src=u;sc.onload=res;sc.onerror=()=>{delete m[u];rej(new Error('불러오기 실패'))};document.head.appendChild(sc)}))})();
 const PDFJS='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js',PDFW='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js',MAMMOTH='https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js';
@@ -1020,6 +1130,7 @@ async function inboxSave(bid,spid,send){
   if(file&&dr.keepFile&&driveConfigured()){try{const sp=spaceOf(spid);const f=await driveUpload(file,sp,'메일·문서');link=f.webViewLink||''}catch(e){toast('원본 파일을 Drive에 올리지 못했어요: '+(e.message||e))}}
   let n=0;const cands=dr.cands.map(c=>{const go=send&&c.on&&c.title;if(go){state.todos.push({id:uid(),text:c.title,date:c.due||TODAY,space:spid,done:false});n++}return {title:c.title,due:c.due,sent:!!go,kind:c.kind}});
   data(b).unshift({id:uid(),date:TODAY,from:dr.from,subject:dr.subject||dr.fileName||'붙여넣은 내용',summary:dr.summary,raw:dr.raw,fileName:dr.fileName,link,mode:dr.mode,cands});
+  {const last=data(b)[0];if(last&&last.raw&&last.raw.length>8000)last.raw=last.raw.slice(0,8000)+'…'}
   delete ui.drafts[bid];delete ui.inText[bid];delete ui.inFile[bid];
   save();render();toast(send?(n?`할 일 ${n}개를 보냈어요`:'보낼 할 일이 체크되지 않았어요'):'원문을 보관했어요');
 }
@@ -1085,7 +1196,7 @@ async function makeThumb(file){
     if(/^image\//.test(file.type)&&!/svg/.test(file.type)){src=await createImageBitmap(file)}
     else if(fileExt(file.name)==='pdf'){const lib=await pdfLib();const doc=await lib.getDocument({data:await file.arrayBuffer()}).promise;const pg=await doc.getPage(1);const vp=pg.getViewport({scale:1});const sc=480/vp.width;const v2=pg.getViewport({scale:sc});const c=document.createElement('canvas');c.width=v2.width;c.height=v2.height;await pg.render({canvasContext:c.getContext('2d'),viewport:v2}).promise;src=c}
     else return '';
-    const w=360,h=Math.round((src.height/src.width)*w)||240,c=document.createElement('canvas');c.width=w;c.height=Math.min(h,480);const x=c.getContext('2d');x.fillStyle='#fff';x.fillRect(0,0,c.width,c.height);x.drawImage(src,0,0,w,h);return c.toDataURL('image/jpeg',0.7);
+    const w=280,h=Math.round((src.height/src.width)*w)||200,c=document.createElement('canvas');c.width=w;c.height=Math.min(h,360);const x=c.getContext('2d');x.fillStyle='#fff';x.fillRect(0,0,c.width,c.height);x.drawImage(src,0,0,w,h);return c.toDataURL('image/jpeg',0.62);
   }catch(e){return ''}
 }
 const fdata=b=>{const d=data(b);if(Array.isArray(d)){state.data[b.id]={folders:['포트폴리오','작업 파일','회사 파일','참고 자료'],items:d};return state.data[b.id]}if(!d.folders)d.folders=['포트폴리오','작업 파일','회사 파일','참고 자료'];if(!d.items)d.items=[];return d};
@@ -1135,6 +1246,7 @@ function searchIndex(){
       case 'files':(D.items||[]).forEach(i=>add('file',i.name,`${P} / ${i.folder} / ${i.date}`,'',go));break;
       case 'money':(D.accounts||[]).forEach(a=>add('etc',a.name,P,'',go));break;
     }}));
+  (ui.archRows||[]).forEach(row=>{if(row.kind==='todos')(row.data.items||[]).forEach(t=>add('todo',t.text,`보관함 / ${t.spaceName||''} / ${t.date}`,'',{arch:true}));else if(row.kind==='inbox'){const e=row.data;add('mail',e.subject,`보관함 / ${e.spaceName||''} / ${e.date}`,[e.summary,e.raw].join(' '),{arch:true})}});
   return R;
 }
 const SK={all:'전체',todo:'할 일',goal:'목표',note:'노트',link:'자료',mail:'메일 정리',file:'파일',etc:'일정·기타'};
@@ -1149,14 +1261,14 @@ function renderSearch(){
   const cnt={};all.forEach(r=>cnt[r.kind]=(cnt[r.kind]||0)+1);
   fl.innerHTML=Object.keys(SK).filter(k=>k==='all'||cnt[k]).map(k=>`<button class="sf${ui.sk===k?' on':''}" data-act="sfilter" data-k="${k}">${SK[k]} ${k==='all'?all.length:cnt[k]}</button>`).join('');
   const list=ui.sk==='all'?all:all.filter(r=>r.kind===ui.sk);
-  if(!list.length){box.innerHTML='<p class="empty spad">찾는 내용이 없어요.</p>';ui.sres=[];return}
+  if(!list.length){box.innerHTML='<p class="empty spad">찾는 내용이 없어요.</p>'+(ui.archOk&&!ui.archRows?'<button class="link spad" data-act="sarch">보관함에서도 찾기</button>':'');ui.sres=[];return}
   const groups={};list.forEach(r=>(groups[r.kind]=groups[r.kind]||[]).push(r));
   const shown=[];let h='';
   Object.keys(SK).filter(k=>groups[k]).forEach(k=>{h+=`<div class="sgroup"><h4>${SK[k]}</h4>`;groups[k].slice(0,ui.sk==='all'?6:60).forEach(r=>{const i=shown.length;shown.push(r);const sn=r.title.toLowerCase().includes(ql)?'':snippet(r.text,q);h+=`<button class="sres${i===ui.sact?' act':''}" data-act="sgo" data-i="${i}">${bicon(SKI[k])}<span><b>${hl(r.title,q)}</b><span>${hl(r.sub,q)}${sn?' / “'+hl(sn,q)+'”':''}</span></span></button>`});h+='</div>'});
-  ui.sres=shown;box.innerHTML=h;
+  ui.sres=shown;box.innerHTML=h+(ui.archOk&&!ui.archRows?'<button class="link spad" data-act="sarch">보관함에서도 찾기</button>':'');
 }
 function searchGo(i){
-  const r=ui.sres[i];if(!r)return;dlg.close();
+  const r=ui.sres[i];if(!r)return;if(r.go.arch){dlg.close();setTimeout(()=>openDlg('archive'),60);return}dlg.close();
   if(r.go.day){ui.view='home';ui.day=r.go.day;ui.week=monday(r.go.day)}else ui.view=r.go.view;
   ui.edit=false;render();
   if(r.go.block){const el=document.getElementById('b-'+r.go.block);if(el){el.scrollIntoView({behavior:'smooth',block:'start'});el.classList.add('flash');setTimeout(()=>el.classList.remove('flash'),1600)}}else window.scrollTo(0,0);
@@ -1191,6 +1303,110 @@ function connCards(){
   <div class="addrow" style="flex-wrap:wrap"><a class="btn sm" href="${esc(url.replace(/^https:/,'webcal:'))}">애플 캘린더에 추가</a><button class="btn ghost sm" data-act="icscopy">주소 복사</button><button class="link" data-act="icsmake">주소 새로 만들기</button></div>`:`<button class="btn ghost sm" data-act="icsmake">구독 주소 만들기</button>`}</div>`;
   return drive+ai+cal;
 }
+
+ICON.tasks=ICON.checklist;TINT.tasks='c3';
+/* ===== v8: 공간 할 일, 먼슬리, 데이터 정리 ===== */
+function migrate8(s){
+  if(!s||s.v8)return s;
+  (s.spaces||[]).forEach(sp=>{if(!sp.blocks.some(b=>b.type==='tasks'))sp.blocks.unshift({id:uid(),type:'tasks',title:'할 일'})});
+  (s.templates||[]).forEach(t=>{if(!t.blocks.some(b=>b.type==='tasks'))t.blocks.unshift({type:'tasks',title:'할 일'})});
+  s.v8=true;return s;
+}
+Object.assign(ui,{tf:{},calM:null,archOk:null,archRows:null});
+function tasksBlock(b,sp){
+  const tab=ui.tf[b.id]||'today',AM=allMs().filter(x=>x.sp.id===sp.id&&!msDupe(x)),T=state.todos.filter(t=>t.space===sp.id),R=(state.routines||[]).filter(r=>r.space===sp.id);
+  const dayItems=d=>[...T.filter(t=>t.date===d).map(t=>todoItem(t,false,true)),...R.filter(r=>occurs(r,d)).map(r=>rtItem(r,d,true)),...AM.filter(x=>x.m.date===d).map(x=>msItem(x,false,true))];
+  const overT=T.filter(t=>t.date<TODAY&&!t.done),overM=AM.filter(x=>x.m.date<TODAY&&!x.m.done),overH=[...overT.map(t=>todoItem(t,true,true)),...overM.map(x=>msItem(x,true,true))];
+  const week=[...Array(7)].map((_,i)=>addDays(TODAY,i)).map(d=>({d,it:dayItems(d)}));
+  const doneH=[...T.filter(t=>t.done).sort((a,c)=>c.date.localeCompare(a.date)).slice(0,40).map(t=>todoItem(t,true,true)),...AM.filter(x=>x.m.done).slice(-20).reverse().map(x=>msItem(x,true,true))];
+  const today=week[0].it,cnt={today:today.length,week:week.reduce((s,x)=>s+x.it.length,0),over:overH.length,done:doneH.length};
+  const tabs=[['today','오늘'],['week','이번 주'],['over','밀린 일'],['done','완료한 일']].map(([k,l])=>`<button class="sf${tab===k?' on':''}" data-act="tfilter" data-b="${b.id}" data-k="${k}">${l} ${cnt[k]}</button>`).join('');
+  const ul=a=>a.length?`<ul class="list">${a.join('')}</ul>`:'';
+  let body='';
+  if(tab==='today')body=(overH.length?`<span class="ovl">밀린 일 ${overH.length}개</span><ul class="list ovlist">${overH.join('')}</ul>`:'')+`<div class="dayhd">${dlabel(TODAY)}</div>`+(ul(today)||'<p class="empty">오늘 할 일이 없어요. 홈이나 아래에서 이 공간을 골라 적으면 여기 모여요.</p>');
+  else if(tab==='week')body=week.filter(x=>x.it.length).map(x=>`<div class="dayhd">${dlabel(x.d)}</div>${ul(x.it)}`).join('')||'<p class="empty">이번 주 할 일이 없어요.</p>';
+  else if(tab==='over')body=ul(overH)||'<p class="empty">밀린 일이 없어요.</p>';
+  else body=ul(doneH)||'<p class="empty">아직 완료한 일이 없어요.</p>';
+  return {head:'홈과 함께 보여요',body:`<div class="sfilters tfil">${tabs}</div>${body}<form class="addrow tadd" data-tadd="${sp.id}"><input name="text" placeholder="${esc(sp.name)} 할 일 추가" required aria-label="할 일"><input type="date" name="date" value="${TODAY}" aria-label="날짜">${repeatSel()}<button class="btn" type="submit">추가</button></form>`};
+}
+/* 먼슬리 */
+function dayDone(d){let n=state.todos.filter(t=>t.date===d&&t.done).length;(state.routines||[]).forEach(r=>{if(r.done&&r.done[d])n++});return n+((state.hist||{})[d]||0)}
+function monthlyCal(){
+  const m=ui.calM||TODAY.slice(0,7),[Y,M]=m.split('-').map(Number),first=m+'-01',start=monday(first),off=(parse(first).getDay()+6)%7,dim=new Date(Y,M,0).getDate(),cells=Math.ceil((off+dim)/7)*7;
+  const ms=allMs(),keys=state.keyDates||[],msDoneOn={};ms.forEach(x=>{if(x.m.done)msDoneOn[x.m.date]=(msDoneOn[x.m.date]||0)+1});
+  let h=WD.map(w=>`<div class="wd">${w}</div>`).join('');
+  for(let i=0;i<cells;i++){
+    const d=addDays(start,i),out=d.slice(0,7)!==m;
+    const ev=[...keys.filter(k=>k.date===d).map(k=>`<span class="ev k">${esc(k.title)}</span>`),...ms.filter(x=>x.m.date===d).map(x=>`<span class="ev m${x.m.done?' dn':''}">${esc(x.m.title)}</span>`)];
+    const n=dayDone(d)+(msDoneOn[d]||0),lv=n>=5?3:n>=3?2:n>=1?1:0;
+    h+=`<button class="c${out?' out':''}${d===TODAY?' today':''}${lv&&d<=TODAY?' h'+lv:''}" data-act="calday" data-d="${d}" aria-label="${dlabel(d)}${n?', 완료 '+n+'개':''}${ev.length?', 일정 '+ev.length+'개':''}"><b>${parse(d).getDate()}</b>${ev.slice(0,3).join('')}${ev.length>3?`<span class="more">+${ev.length-3}</span>`:''}${ev.length?`<span class="dots">${'<i></i>'.repeat(Math.min(ev.length,3))}</span>`:''}</button>`;
+  }
+  return `<section class="acard mcal"><div class="ph" style="margin:0 0 6px"><h2>먼슬리</h2><span class="mnav"><button class="icon" data-act="calm" data-n="-1" aria-label="이전 달">‹</button><b>${Y}년 ${M}월</b><button class="icon" data-act="calm" data-n="1" aria-label="다음 달">›</button>${m!==TODAY.slice(0,7)?'<button class="link" data-act="calm" data-n="0">이번 달</button>':''}</span></div>
+  <div class="cal">${h}</div><div class="legend"><span><i class="lg h2"></i>할 일을 많이 끝낸 날</span><span class="lm">중간 목표</span><span class="lk">중요 일정</span><span>날짜를 누르면 그날 할 일로 이동해요</span></div></section>`;
+}
+/* 데이터 정리 */
+const KB=n=>n<1024?n+'B':n<1048576?Math.round(n/1024)+'KB':(n/1048576).toFixed(1)+'MB';
+function dataStats(){
+  const sz=o=>new Blob([JSON.stringify(o)]).size;let thumbs=0,raw=0;
+  state.spaces.forEach(sp=>sp.blocks.forEach(b=>{const D=state.data[b.id];if(!D)return;if(b.type==='files')(D.items||[]).forEach(i=>thumbs+=(i.thumb||'').length);if(b.type==='inbox')D.forEach(e=>raw+=new Blob([e.raw||'']).size)}));
+  return {tot:sz(state),thumbs,raw,todos:sz(state.todos),rt:sz((state.routines||[]).map(r=>r.done||{}))};
+}
+async function archiveReady(){
+  if(!sb||!session)return false;if(ui.archOk!==null)return ui.archOk;
+  const {error}=await sb.from('workspace_archive').select('id',{count:'exact',head:true});
+  ui.archOk=!error;return ui.archOk;
+}
+async function loadArchive(){
+  if(!(await archiveReady())){ui.archRows=[];return}
+  const {data:rows,error}=await sb.from('workspace_archive').select('id,kind,period,data,created_at').order('period',{ascending:false}).limit(500);
+  ui.archRows=error?[]:(rows||[]);
+}
+async function compact(manual){
+  const cut90=addDays(TODAY,-90),cut120=addDays(TODAY,-120),cut180=addDays(TODAY,-180);let moved=0,slim=0;
+  state.hist=state.hist||{};
+  (state.routines||[]).forEach(r=>{Object.keys(r.done||{}).forEach(d=>{if(d<cut120){state.hist[d]=(state.hist[d]||0)+1;delete r.done[d];slim++}});Object.keys(r.skip||{}).forEach(d=>{if(d<cut120)delete r.skip[d]})});
+  state.spaces.forEach(sp=>sp.blocks.forEach(b=>{if(b.type!=='files')return;fdata(b).items.forEach(i=>{if(i.thumb&&!i.star&&i.date<cut180){delete i.thumb;slim++}})}));
+  if(await archiveReady()){
+    const old=state.todos.filter(t=>t.done&&t.date<cut90);
+    if(old.length){const byM={};old.forEach(t=>{const p=t.date.slice(0,7);(byM[p]=byM[p]||[]).push({...t,spaceName:spName(t.space)})});
+      const {error}=await sb.from('workspace_archive').insert(Object.entries(byM).map(([p,items])=>({kind:'todos',period:p,data:{items}})));
+      if(!error){const ids=new Set(old.map(t=>t.id));old.forEach(t=>{state.hist[t.date]=(state.hist[t.date]||0)+1});state.todos=state.todos.filter(t=>!ids.has(t.id));moved+=old.length}}
+    const rows=[],strip=[];
+    state.spaces.forEach(sp=>sp.blocks.forEach(b=>{if(b.type!=='inbox')return;data(b).forEach(e=>{if(e.date<cut90&&!e.archived&&(e.raw||'').length>300){rows.push({kind:'inbox',period:e.date.slice(0,7),data:{...e,spaceName:sp.name}});strip.push(e)}})}));
+    if(rows.length){const {error}=await sb.from('workspace_archive').insert(rows);if(!error){strip.forEach(e=>{e.raw=e.raw.slice(0,300)+'…';e.archived=true});moved+=rows.length}}
+    if(moved)ui.archRows=null;
+  }
+  state.lastCompact=TODAY.slice(0,7);save();render();
+  if(manual)toast(moved||slim?`정리했어요. 보관함으로 ${moved}건, 가볍게 줄인 기록 ${slim}건`:'정리할 오래된 기록이 아직 없어요');
+}
+function dataPanel(){
+  const s=dataStats(),pct=Math.min(100,Math.round(s.tot/2097152*100)),ok=ui.archOk;
+  if(ui.archOk===null&&sb&&session)archiveReady().then(()=>{if(ui.view==='settings')render()});
+  return `<h3>데이터</h3><div class="dmeter"><div class="bar"><span style="width:${Math.max(2,pct)}%"></span></div><span class="small">지금 ${KB(s.tot)} / 가볍게 쓰기 좋은 크기 2MB</span></div>
+  <p class="small" style="margin:4px 0 10px">할 일 ${KB(s.todos)}, 메일 원문 ${KB(s.raw)}, 썸네일 ${KB(s.thumbs)}, 반복 기록 ${KB(s.rt)}. 매달 처음 열 때 오래된 기록을 자동으로 정리해요${state.lastCompact?' (마지막 정리 '+esc(state.lastCompact)+')':''}.</p>
+  <p class="small" style="margin:0 0 10px">보관함: ${ok===null?'확인 중…':ok?'사용 중. 90일 지난 완료한 일과 메일 원문을 옮겨 둬요.':'설정 전. 설정하면 오래된 기록을 지우지 않고 옮겨 둘 수 있어요.'}</p>
+  <div class="addrow" style="flex-wrap:wrap"><button class="btn ghost sm" data-act="compact">지금 정리하기</button>${ok?'<button class="btn ghost sm" data-act="dlg" data-d="archive">보관함 보기</button>':''}</div>`;
+}
+function archiveDlg(){
+  if(ui.archRows===null){loadArchive().then(()=>{if(ui.dlg==='archive')renderDlg()});return '<p class="empty">보관함을 불러오는 중…</p>'}
+  if(!ui.archRows.length)return '<p class="empty">보관함이 비어 있어요. 90일이 지난 기록부터 옮겨져요.</p>';
+  const by={};ui.archRows.forEach(r=>(by[r.period]=by[r.period]||[]).push(r));
+  return Object.keys(by).sort().reverse().map(p=>{const rs=by[p],todos=rs.filter(r=>r.kind==='todos').flatMap(r=>r.data.items||[]),mails=rs.filter(r=>r.kind==='inbox').map(r=>r.data);
+    return `<details class="arow"><summary><b>${esc(p.replace('-','년 '))}월</b><span class="small">완료한 일 ${todos.length}개, 메일 ${mails.length}건</span></summary>${todos.length?`<ul class="clist">${todos.map(t=>`<li>✓ ${esc(t.text)} <span class="small">${esc(t.spaceName||'')} / ${esc(t.date)}</span></li>`).join('')}</ul>`:''}${mails.map(e=>`<details class="arch2"><summary>${esc(e.subject||'메일')} <span class="small">${esc(e.date)} / ${esc(e.spaceName||'')}</span></summary>${e.summary?`<div class="sum">${esc(e.summary)}</div>`:''}<div class="pre">${esc(e.raw||'')}</div></details>`).join('')}</details>`}).join('');
+}
+document.addEventListener('click',e=>{
+  const el=e.target.closest('[data-act]');if(!el)return;const a=el.dataset.act;
+  if(a==='tfilter'){ui.tf[el.dataset.b]=el.dataset.k;render();return}
+  if(a==='calm'){const n=+el.dataset.n;if(!n)ui.calM=null;else{const [Y,M]=(ui.calM||TODAY.slice(0,7)).split('-').map(Number);const d=new Date(Y,M-1+n,1);ui.calM=d.getFullYear()+'-'+pad(d.getMonth()+1)}render();return}
+  if(a==='calday'){const d=el.dataset.d;ui.view='home';ui.day=d;ui.week=monday(d);ui.edit=false;render();window.scrollTo(0,0);return}
+  if(a==='compact'){compact(true);return}
+  if(a==='sarch'){el.textContent='불러오는 중…';loadArchive().then(renderSearch);return}
+});
+document.addEventListener('submit',e=>{
+  const f=e.target;if(!f.dataset.tadd)return;e.preventDefault();const fd=Object.fromEntries(new FormData(f));
+  addTask(fd.text,fd.date||TODAY,f.dataset.tadd,fd.repeat);save();render();toast('추가했어요');
+});
+setTimeout(()=>{if(state.lastCompact!==TODAY.slice(0,7)&&(!sb||(session&&base)))compact(false)},9000);
 
 function render(){
   if(!['a1','a2','a3'].includes(state.layout))state.layout='a1';
@@ -1258,7 +1474,7 @@ document.addEventListener('click',e=>{
     case 'delchap':if(!confirm('이 챕터를 삭제할까요? 중간 목표는 그대로예요.'))return;state.chapters=state.chapters.filter(c=>c.id!==id);break;
     case 'export':{const blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'});const l=document.createElement('a');l.href=URL.createObjectURL(blob);l.download='작업공간-백업-'+TODAY+'.json';document.body.appendChild(l);l.click();setTimeout(()=>{URL.revokeObjectURL(l.href);l.remove()},500);toast('백업 파일을 내보냈어요');return}
     case 'import':document.getElementById('importFile').click();return;
-    case 'reset':if(!confirm('모든 내용을 지우고 예시 상태로 되돌릴까요? 로그인 중이면 다른 기기에도 반영돼요.'))return;state=migrate(seed());ui.view='home';break;
+    case 'reset':if(!confirm('모든 내용을 지우고 예시 상태로 되돌릴까요? 로그인 중이면 다른 기기에도 반영돼요.'))return;state=migrate(seed());forcePush=true;ui.view='home';break;
     default:return;
   }
   save();render();
@@ -1291,7 +1507,7 @@ document.addEventListener('change',e=>{
   else if(ds.tbt){const[tid,i]=ds.tbt.split('|');byId(state.templates,tid).blocks[+i].title=t.value.trim()||'이름 없음'}
   else if(t.id==='importFile'){
     const file=t.files[0];if(!file)return;const r=new FileReader();
-    r.onload=()=>{try{const s=JSON.parse(r.result);if(!s||!Array.isArray(s.spaces)||!s.data)throw 0;if(!confirm('지금 내용을 백업 파일 내용으로 바꿀까요?'))return;state=migrate(s);save();ui.view='home';render();toast('불러왔어요')}catch(_){toast('이 파일은 작업 공간 백업 파일이 아니에요')}t.value=''};
+    r.onload=()=>{try{const s=JSON.parse(r.result);if(!s||!Array.isArray(s.spaces)||!s.data)throw 0;if(!confirm('지금 내용을 백업 파일 내용으로 바꿀까요?'))return;state=migrate(s);forcePush=true;save();ui.view='home';render();toast('불러왔어요')}catch(_){toast('이 파일은 작업 공간 백업 파일이 아니에요')}t.value=''};
     r.readAsText(file);return;
   }
   else return;
