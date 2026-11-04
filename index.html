@@ -584,6 +584,14 @@ mark{background:#FFE7A0;color:inherit;border-radius:3px;padding:0 1px}
 .ipi2 .small{display:block}
 .ipi2 .chip{color:var(--accent)}
 @media (prefers-reduced-motion: reduce){.sw::after{transition:none}}
+
+/* ===== v11: 직접 저장 / 가져오기 ===== */
+.synwrap{display:inline-flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end}
+.syncbtns{display:inline-flex;gap:6px}
+.syncbtns .btn{padding:5px 11px;font-size:12.5px}
+.sync[data-s="dirty"]{color:#B4532A;font-weight:600}.sync[data-s="dirty"]::before{background:#E08A5E}
+.sync[data-s="newer"]{color:var(--accent);font-weight:600}.sync[data-s="newer"]::before{background:var(--accent)}
+@media (max-width:760px){.topbar{gap:8px}.synwrap{width:100%;justify-content:space-between}}
 </style>
 
 </head>
@@ -593,7 +601,7 @@ mark{background:#FFE7A0;color:inherit;border-radius:3px;padding:0 1px}
   <main><div class="wrap">
     <div class="topbar">
       <span class="small" id="todayLabel"></span>
-      <span class="small sync" id="syncLabel" role="status"></span>
+      <span class="synwrap"><span class="small sync" id="syncLabel" role="status"></span><span class="syncbtns" id="syncBtns"></span></span>
     </div>
     <div id="view"></div>
   </div></main>
@@ -646,7 +654,6 @@ const BT={
   info:{name:'기본 정보',desc:'항목과 내용, 복사 버튼'},
   works:{name:'작업물',desc:'작업 기록과 포트폴리오 후보'},
   books:{name:'독서 노트',wide:1,desc:'책별 상태와 느낀 점'},
-  tasks:{name:'할 일',wide:1,desc:'이 공간의 할 일, 반복 일정, 중간 목표 모아보기'},
   inbox:{name:'메일·문서 정리함',wide:1,desc:'메일이나 파일을 넣으면 할 일로 정리'},
   files:{name:'파일함',wide:1,desc:'Google Drive에 올리고 썸네일로 관리'}
 };
@@ -710,89 +717,74 @@ function seed(){
 function load(){try{const r=localStorage.getItem(KEY);if(r){const s=JSON.parse(r);if(s&&Array.isArray(s.spaces)&&s.data)return migrate(s)}}catch(e){}return migrate(seed())}
 const SYNC_READY=/^https:\/\//.test(CONFIG.SUPABASE_URL)&&CONFIG.SUPABASE_ANON_KEY.length>20&&!/여기에/.test(CONFIG.SUPABASE_ANON_KEY)&&!!window.supabase;
 const sb=SYNC_READY?window.supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY):null;
-let session=null,pushTimer=null,syncState='local',pushing=false,pendingPush=false,forcePush=false;
-const SYNC_TEXT={local:'이 기기에만 저장',out:'로그인하면 동기화돼요',saving:'저장 중',ok:'동기화됨',off:'오프라인, 연결되면 저장해요',err:'동기화 오류, 잠시 뒤 다시 시도해요'};
-function setSync(s){syncState=s;const el=document.getElementById('syncLabel');if(el){el.textContent=SYNC_TEXT[s];el.dataset.s=s}}
-function writeLocal(){try{localStorage.setItem(KEY,JSON.stringify(state))}catch(e){}}
-/* 마지막으로 서버와 맞춘 상태(base)를 기억해 두고, 양쪽에서 바뀐 부분을 합쳐요 */
-const BASEKEY=KEY+'.base';
-let base=(()=>{try{return JSON.parse(localStorage.getItem(BASEKEY)||'null')}catch(e){return null}})();
-function setBase(o){base=o?JSON.parse(JSON.stringify(o)):null;try{base?localStorage.setItem(BASEKEY,JSON.stringify(base)):localStorage.removeItem(BASEKEY)}catch(e){}}
-function same(a,b){if(a===b)return true;if(a===null||b===null||typeof a!=='object'||typeof b!=='object')return false;if(Array.isArray(a)!==Array.isArray(b))return false;if(Array.isArray(a)){if(a.length!==b.length)return false;for(let i=0;i<a.length;i++)if(!same(a[i],b[i]))return false;return true}const ka=Object.keys(a),kb=Object.keys(b);if(ka.length!==kb.length)return false;for(const k of ka)if(!same(a[k],b[k]))return false;return true}
-const isObj=v=>!!v&&typeof v==='object'&&!Array.isArray(v);
-const idArr=v=>Array.isArray(v)&&v.every(x=>isObj(x)&&typeof x.id==='string');
-let MT={};
-function merge3(b,l,r){
-  if(same(l,r))return l;
-  if(idArr(l)&&idArr(r)){
-    /* 지운 기록(tomb)이 없는 항목은 한쪽에만 있어도 절대 버리지 않아요 */
-    const bm=new Map((Array.isArray(b)?b:[]).filter(isObj).map(x=>[x.id,x])),lm=new Map(l.map(x=>[x.id,x])),rm=new Map(r.map(x=>[x.id,x])),out=[];
-    l.forEach(x=>{const ri=rm.get(x.id);if(ri)out.push(merge3(bm.get(x.id),x,ri));else if(!MT[x.id])out.push(x)});
-    r.forEach((x,i)=>{if(lm.has(x.id)||MT[x.id])return;out.splice(Math.min(i,out.length),0,x)});
-    return out;
-  }
-  if(isObj(l)&&isObj(r)){const o={},bb=isObj(b)?b:{};new Set([...Object.keys(l),...Object.keys(r)]).forEach(k=>{const v=merge3(bb[k],l[k],r[k]);if(v!==undefined)o[k]=v});return o}
-  if(same(b,l))return r;if(same(b,r))return l;
-  return l;
+/* ===== 직접 저장 / 가져오기 방식 =====
+   - 무엇을 하든 이 기기에만 바로 저장돼요.
+   - "서버에 저장"을 누르면 이 기기 내용이 최종 데이터가 돼요.
+   - 다른 기기는 "최신 가져오기"를 누르면 서버의 최종 데이터로 통째로 바뀌어요.
+   - 앱이 알아서 합치거나 올리거나 바꾸지 않아요. */
+let session=null,syncState='local',busy=false,forcePush=false,readOnly=false;
+const APP_VER=11;
+const SRVKEY=KEY+'.srv',DIRTYKEY=KEY+'.dirty';
+const getSrv=()=>{try{const v=JSON.parse(localStorage.getItem(SRVKEY)||'null');if(v)return v;const b=JSON.parse(localStorage.getItem(KEY+'.base')||'null');return b&&b._updated?{stamp:b._updated}:null}catch(e){return null}};
+const setSrv=st=>{try{localStorage.setItem(SRVKEY,JSON.stringify({stamp:st,at:Date.now()}));localStorage.removeItem(KEY+'.base')}catch(e){}};
+const isDirty=()=>{try{const v=localStorage.getItem(DIRTYKEY);if(v!==null)return v==='1';const b=JSON.parse(localStorage.getItem(KEY+'.base')||'null');return !!(b&&state&&b._updated!==state._updated)}catch(e){return false}};
+const setDirty=v=>{try{localStorage.setItem(DIRTYKEY,v?'1':'0')}catch(e){}};
+const SYNC_TEXT={local:'이 기기에만 저장',out:'로그인 필요',ok:'서버와 같아요',dirty:'저장 안 된 변경 있음',newer:'다른 기기에 최신 내용 있음',saving:'저장 중…',loading:'가져오는 중…',err:'연결 오류',off:'오프라인'};
+function setSync(s){syncState=s;const el=document.getElementById('syncLabel');if(el){el.textContent=SYNC_TEXT[s]||'';el.dataset.s=s}renderSyncBtns()}
+function renderSyncBtns(){
+  const box=document.getElementById('syncBtns');if(!box)return;
+  if(!sb||!session){box.innerHTML='';return}
+  const dirty=isDirty(),newer=syncState==='newer'||ui_newer;
+  box.innerHTML=`<button class="btn sm ${dirty?'':'ghost'}" data-act="upload"${busy||readOnly?' disabled':''}>서버에 저장</button><button class="btn sm ${newer&&!dirty?'':'ghost'}" data-act="download"${busy?' disabled':''}>최신 가져오기</button>`;
 }
-function mergeState(b,l,r){
-  MT=Object.assign({},b&&b.tomb,l&&l.tomb,r&&r.tomb);
-  const cut=addDays(TODAY,-60);Object.keys(MT).forEach(k=>{if(String(MT[k])<cut)delete MT[k]});
-  const m=merge3(b,l,r);m.tomb=MT;MT={};return m;
-}
-const APP_VER=9;let readOnly=false;
-function staleBlock(){if(readOnly)return;readOnly=true;clearTimeout(pushTimer);const bn=document.createElement('div');bn.className='stale';bn.innerHTML='새 버전이 나왔어요. 새로고침하면 최신 기록이 보여요. <button class="btn sm" onclick="location.reload()">새로고침</button>';document.body.appendChild(bn)}
-function checkDel(){
-  if(typeof ui==='undefined'||!ui.delCand||!ui.delCand.length)return;
-  const j=JSON.stringify(state);ui.delCand.forEach(id=>{if(id&&!j.includes('"'+id+'"'))(state.tomb=state.tomb||{})[id]=TODAY});ui.delCand=[];
-}
-function save(){checkDel();state._updated=Date.now();writeLocal();if(readOnly){setSync('err');return}schedulePush()}
-function schedulePush(){if(!sb||!session)return;setSync('saving');clearTimeout(pushTimer);pushTimer=setTimeout(push,1200)}
-async function remoteStamp(){const {data,error}=await sb.from('workspace').select('stamp:data->_updated,ver:data->appVer').eq('user_id',session.user.id).maybeSingle();if(error)throw error;if(data&&(+data.ver||0)>APP_VER)staleBlock();return data?data.stamp:null}
+let ui_newer=false;
+function writeLocal(){try{localStorage.setItem(KEY,JSON.stringify(state))}catch(e){toast('이 기기 저장 공간이 부족해요. 관리 > 데이터에서 정리해 주세요')}}
+function save(){state._updated=Date.now();writeLocal();setDirty(true);if(sb&&session)setSync('dirty');else setSync(sb?'out':'local')}
+function staleBlock(){if(readOnly)return;readOnly=true;const bn=document.createElement('div');bn.className='stale';bn.innerHTML='새 버전이 나왔어요. 새로고침하면 최신 화면으로 바뀌어요. <button class="btn sm" onclick="location.reload()">새로고침</button>';document.body.appendChild(bn);renderSyncBtns()}
+async function remoteMeta(){const {data,error}=await sb.from('workspace').select('stamp:data->_updated,ver:data->appVer').eq('user_id',session.user.id).maybeSingle();if(error)throw error;return {stamp:data?data.stamp:null,ver:data?(+data.ver||0):0}}
 async function fetchRemote(){const {data,error}=await sb.from('workspace').select('data').eq('user_id',session.user.id).maybeSingle();if(error)throw error;return data&&data.data}
-async function push(){
-  if(!sb||!session)return;if(!navigator.onLine){setSync('off');return}
-  if(readOnly)return;
-  if(pushing){pendingPush=true;return}pushing=true;
-  state.appVer=Math.max(state.appVer||0,APP_VER);
-  const uidv=session.user.id,stamp=o=>new Date(o._updated||Date.now()).toISOString();
+async function upload(){
+  if(!sb||!session||readOnly||busy)return;
+  busy=true;setSync('saving');
   try{
-    if(forcePush){const snap=JSON.parse(JSON.stringify(state));const {error}=await sb.from('workspace').upsert({user_id:uidv,data:snap,updated_at:stamp(snap)});if(error)throw error;forcePush=false;setBase(snap);setSync('ok');return}
-    for(let tries=0;tries<4;tries++){
-      if(!base){const remote=await fetchRemote();if(remote){const m=mergeState(null,state,remote);m._updated=Date.now();state=migrate(m);writeLocal();setBase(remote);render()}}
-      /* 지운 기록 없이 사라진 항목은 다시 살려서 올려요 */
-      if(base){const g=mergeState(base,state,base);if(!same(g.todos,state.todos)||!same(g.routines,state.routines)||!same(g.data,state.data)){state=g;writeLocal();render()}}
-      const snap=JSON.parse(JSON.stringify(state));
-      if(!base){
-        const {error}=await sb.from('workspace').insert({user_id:uidv,data:snap,updated_at:stamp(snap)});
-        if(!error){setBase(snap);setSync('ok');return}
-        if(error.code==='23505')continue;throw error;
-      }
-      /* 서버 내용이 내가 마지막으로 본 것과 같을 때만 저장해요 (동시에 고쳐도 덮어쓰지 않게) */
-      const {data:rows,error}=await sb.from('workspace').update({data:snap,updated_at:stamp(snap)}).eq('user_id',uidv).eq('data->>_updated',String(base._updated)).select('user_id');
-      if(error)throw error;
-      if(rows&&rows.length){setBase(snap);setSync('ok');return}
-      const remote=await fetchRemote();
-      if(!remote){setBase(null);continue}
-      if((remote.appVer||0)>APP_VER){staleBlock();return}const merged=mergeState(base,state,remote);merged._updated=Date.now();state=migrate(merged);writeLocal();setBase(remote);render();
-    }
-    throw new Error('동기화 충돌이 계속돼요');
-  }catch(e){console.error(e);setSync('err');clearTimeout(pushTimer);pushTimer=setTimeout(push,15000)}
-  finally{pushing=false;if(pendingPush){pendingPush=false;schedulePush()}}
+    const m=await remoteMeta();
+    if(m.ver>APP_VER){staleBlock();return}
+    const srv=getSrv();
+    if(m.stamp!=null&&(!srv||String(m.stamp)!==String(srv.stamp))&&!confirm('다른 기기에서 더 최근에 저장한 내용이 있어요.\n이 기기 내용으로 덮어쓸까요?\n\n취소를 누르면 저장하지 않아요. "최신 가져오기"로 먼저 확인할 수 있어요.')){ui_newer=true;setSync('newer');return}
+    state._updated=Date.now();state.appVer=Math.max(state.appVer||0,APP_VER);
+    const snap=JSON.parse(JSON.stringify(state));
+    const {error}=await sb.from('workspace').upsert({user_id:session.user.id,data:snap,updated_at:new Date(snap._updated).toISOString()});
+    if(error)throw error;
+    writeLocal();setSrv(snap._updated);setDirty(false);ui_newer=false;forcePush=false;
+    setSync('ok');toast('서버에 저장했어요. 다른 기기에서는 "최신 가져오기"를 눌러주세요');
+  }catch(e){console.error(e);setSync('err');toast('저장하지 못했어요. 인터넷 연결을 확인해 주세요')}
+  finally{busy=false;renderSyncBtns()}
 }
+async function download(skipConfirm){
+  if(!sb||!session||busy)return;
+  if(!skipConfirm&&isDirty()&&!confirm('이 기기에서 서버에 저장하지 않은 변경이 있어요.\n최신 내용을 가져오면 이 기기의 변경은 사라져요. 가져올까요?'))return;
+  busy=true;setSync('loading');
+  try{
+    const r=await fetchRemote();
+    if(!r){toast('서버에 저장된 내용이 아직 없어요. "서버에 저장"을 먼저 눌러주세요');setSync(isDirty()?'dirty':'ok');return}
+    if((r.appVer||0)>APP_VER){staleBlock();return}
+    const before=JSON.stringify(r);state=migrate(r);writeLocal();setSrv(r._updated);
+    const changed=JSON.stringify(state)!==before;setDirty(changed);ui_newer=false;
+    render();setSync(changed?'dirty':'ok');if(!skipConfirm)toast('최신 내용을 가져왔어요');
+  }catch(e){console.error(e);setSync('err');toast('가져오지 못했어요. 인터넷 연결을 확인해 주세요')}
+  finally{busy=false;renderSyncBtns()}
+}
+/* 확인만 해요. 아무것도 자동으로 바꾸지 않아요 */
 async function pull(){
-  if(!sb||!session||!navigator.onLine){if(session)setSync('off');return}
-  if(pushing||syncState==='saving')return;
-  let remote;try{remote=await fetchRemote()}catch(e){console.error(e);setSync('err');return}
-  const linkKey=KEY+'.linked',linked=localStorage.getItem(linkKey)===session.user.id;
-  const dirty=!base||(state._updated||0)!==(base._updated||0);
-  const adopt=r=>{const was=!!(r.v5&&r.v8);state=migrate(r);writeLocal();setBase(r);render();if(!was)save();else setSync('ok')};
-  if(!remote){if(!state._updated)state._updated=Date.now();writeLocal();await push()}
-  else if(!linked)adopt(remote);
-  else if((remote.appVer||0)>APP_VER){staleBlock()}
-  else if(base&&String(remote._updated)===String(base._updated)){if(dirty)await push();else setSync('ok')}
-  else{const merged=mergeState(base,state,remote);const changed=!same(merged.todos,remote.todos)||!same(merged.data,remote.data)||!same(merged.routines,remote.routines);state=migrate(merged);if(changed){state._updated=Date.now();writeLocal();setBase(remote);render();await push()}else{state._updated=remote._updated;writeLocal();setBase(remote);render();setSync('ok')}}
-  try{localStorage.setItem(linkKey,session.user.id)}catch(e){}
+  if(!sb||!session)return;if(!navigator.onLine){setSync('off');return}
+  if(busy)return;
+  let m;try{m=await remoteMeta()}catch(e){console.error(e);setSync('err');return}
+  if(m.ver>APP_VER){staleBlock();return}
+  const srv=getSrv();
+  if(m.stamp==null){setDirty(true);setSync('dirty');return}
+  if(!srv){ /* 이 기기에서 처음 로그인: 서버 내용을 가져와요 */ await download(true);try{localStorage.setItem(KEY+'.linked',session.user.id)}catch(e){}return}
+  if(String(m.stamp)!==String(srv.stamp)){if(!ui_newer)toast('다른 기기에서 저장한 최신 내용이 있어요. "최신 가져오기"를 눌러주세요');ui_newer=true;setSync('newer')}
+  else{ui_newer=false;setSync(isDirty()?'dirty':'ok')}
 }
 async function initSync(){
   if(!sb){setSync('local');return}
@@ -801,9 +793,11 @@ async function initSync(){
   if(session)await pull();else{setSync('out');openDlg('login')}
 }
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')pull()});
-window.addEventListener('online',()=>{if(session)push()});
-window.addEventListener('storage',e=>{if(e.key===KEY&&e.newValue){try{state=JSON.parse(e.newValue);base=JSON.parse(localStorage.getItem(BASEKEY)||'null');render()}catch(x){}}});
-setInterval(async()=>{if(document.visibilityState!=='visible'||!sb||!session||pushing||syncState==='saving')return;try{const st=await remoteStamp();if(st!=null&&base&&String(st)!==String(base._updated))pull()}catch(e){}},45000);
+window.addEventListener('online',()=>pull());
+window.addEventListener('storage',e=>{if(e.key===KEY&&e.newValue){try{state=JSON.parse(e.newValue);render();setSync(isDirty()?'dirty':syncState)}catch(x){}}});
+window.addEventListener('beforeunload',e=>{if(sb&&session&&isDirty()){e.preventDefault();e.returnValue=''}});
+setInterval(()=>{if(document.visibilityState==='visible')pull()},60000);
+document.addEventListener('click',e=>{const el=e.target.closest&&e.target.closest('[data-act]');if(!el)return;if(el.dataset.act==='upload')upload();else if(el.dataset.act==='download')download(false)});
 function loginMsg(m){const el=document.getElementById('loginMsg');if(el)el.textContent=m}
 let state=load();
 const ui={view:'home',day:TODAY,week:monday(TODAY),edit:false,chap:null,dlg:null};
@@ -1010,7 +1004,7 @@ function spacePage(sp){
   const headHtml=ui.edit?`<label class="f" style="max-width:360px">공간 이름<input data-sname="${sp.id}" value="${esc(sp.name)}"></label>`:`<h1>${esc(sp.name)}</h1>`;
   const foot=ui.edit?`<div class="editor" style="margin-top:26px"><p class="small" style="margin:0 0 8px">블록 추가, 눌러서 맨 아래에 더해요</p>${palette('addblk',`data-s="${sp.id}"`)}<div class="addrow" style="flex-wrap:wrap;margin-top:16px"><button class="btn ghost sm" data-act="savetpl" data-s="${sp.id}">이 구성을 템플릿으로 저장</button><button class="btn danger sm" data-act="delspace" data-s="${sp.id}">공간 삭제</button></div></div>`:'';
   return `<div class="pagehead"><div class="grow">${headHtml}</div><button class="btn sm ${ui.edit?'':'ghost'}" data-act="edit">${ui.edit?'편집 끝내기':'구성 편집'}</button></div>
-  <div class="blocks ${ui.edit?'edit-on':''}">${sp.blocks.map((b,i)=>blockHtml(sp,b,i,n)).join('')||'<p class="empty">블록이 없어요. 구성 편집에서 추가하세요.</p>'}</div>${foot}`;
+  <div class="blocks ${ui.edit?'edit-on':''}">${(()=>{const r=tasksBlock({id:'tasks-'+sp.id},sp);return `<section class="panel wide" id="tasks-${sp.id}"><div class="ph"><h2>할 일</h2><span class="small">${r.head}</span></div>${r.body}</section>`})()}${sp.blocks.map((b,i)=>blockHtml(sp,b,i,n)).join('')}</div>${foot}`;
 }
 function settings(){
   if(!state.templates.find(t=>t.id===ui.tplSel))ui.tplSel=(state.templates[0]||{}).id;
@@ -1374,10 +1368,11 @@ function connCards(){
 ICON.tasks=ICON.checklist;TINT.tasks='c3';
 /* ===== v8: 공간 할 일, 먼슬리, 데이터 정리 ===== */
 function migrate8(s){
-  if(!s||s.v8)return s;
-  (s.spaces||[]).forEach(sp=>{if(!sp.blocks.some(b=>b.type==='tasks'))sp.blocks.unshift({id:uid(),type:'tasks',title:'할 일'})});
-  (s.templates||[]).forEach(t=>{if(!t.blocks.some(b=>b.type==='tasks'))t.blocks.unshift({type:'tasks',title:'할 일'})});
-  s.v8=true;return s;
+  /* 예전 업데이트가 데이터에 끼워 넣은 "할 일" 칸을 빼요. 화면의 할 일은 코드가 그려요 */
+  if(!s||s.v10)return s;
+  (s.spaces||[]).forEach(sp=>{sp.blocks=(sp.blocks||[]).filter(b=>b.type!=='tasks')});
+  (s.templates||[]).forEach(t=>{t.blocks=(t.blocks||[]).filter(b=>b.type!=='tasks')});
+  s.v8=true;s.v10=true;return s;
 }
 Object.assign(ui,{tf:{},calM:null,archOk:null,archRows:null});
 function tasksBlock(b,sp){
@@ -1450,7 +1445,7 @@ function dataPanel(){
   const s=dataStats(),pct=Math.min(100,Math.round(s.tot/2097152*100)),ok=ui.archOk;
   if(ui.archOk===null&&sb&&session)archiveReady().then(()=>{if(ui.view==='settings')render()});
   return `<h3>데이터</h3><div class="dmeter"><div class="bar"><span style="width:${Math.max(2,pct)}%"></span></div><span class="small">지금 ${KB(s.tot)} / 가볍게 쓰기 좋은 크기 2MB</span></div>
-  <p class="small" style="margin:4px 0 10px">할 일 ${KB(s.todos)}, 메일 원문 ${KB(s.raw)}, 썸네일 ${KB(s.thumbs)}, 반복 기록 ${KB(s.rt)}. 매달 처음 열 때 오래된 기록을 자동으로 정리해요${state.lastCompact?' (마지막 정리 '+esc(state.lastCompact)+')':''}.</p>
+  <p class="small" style="margin:4px 0 10px">할 일 ${KB(s.todos)}, 메일 원문 ${KB(s.raw)}, 썸네일 ${KB(s.thumbs)}, 반복 기록 ${KB(s.rt)}. 무거워지면 아래 "지금 정리하기"를 눌러주세요${state.lastCompact?' (마지막 정리 '+esc(state.lastCompact)+')':''}. 자동으로 정리하지 않아요.</p>
   <p class="small" style="margin:0 0 10px">보관함: ${ok===null?'확인 중…':ok?'사용 중. 90일 지난 완료한 일과 메일 원문을 옮겨 둬요.':'설정 전. 설정하면 오래된 기록을 지우지 않고 옮겨 둘 수 있어요.'}</p>
   <div class="addrow" style="flex-wrap:wrap"><button class="btn ghost sm" data-act="compact">지금 정리하기</button>${ok?'<button class="btn ghost sm" data-act="dlg" data-d="archive">보관함 보기</button>':''}</div>`;
 }
@@ -1473,7 +1468,7 @@ document.addEventListener('submit',e=>{
   const f=e.target;if(!f.dataset.tadd)return;e.preventDefault();const fd=Object.fromEntries(new FormData(f));
   addTask(fd.text,fd.date||TODAY,f.dataset.tadd,fd.repeat);save();render();toast('추가했어요');
 });
-setTimeout(()=>{if(state.lastCompact!==TODAY.slice(0,7)&&(!sb||(session&&base)))compact(false)},9000);
+
 
 function render(){
   if(!['a1','a2','a3'].includes(state.layout))state.layout='a1';
@@ -1482,7 +1477,7 @@ function render(){
   if(ui.view!=='home'&&ui.view!=='settings'&&!spaceOf(ui.view))ui.view='home';
   const nav=(v,l,cls)=>`<button class="nav ${cls||''}" data-view="${v}"${ui.view===v?' aria-current="page"':''}>${l}</button>`;
   document.getElementById('side').innerHTML=`<div class="brand">나의 작업 공간</div>${nav('home','홈')}${state.spaces.map(s=>nav(s.id,esc(s.name))).join('')}<button class="nav add" data-act="dlg" data-d="space">+ 공간 추가</button><div class="sp"></div><button class="search" data-act="dlg" data-d="search">${ICON.search}<span>검색</span><kbd>${/Mac|iP/.test(navigator.platform||'')?'⌘':'Ctrl '}K</kbd></button>${nav('settings','관리')}`;
-  document.getElementById('todayLabel').textContent=dlabel(TODAY);
+  document.getElementById('todayLabel').textContent=dlabel(TODAY);renderSyncBtns();
   const cur=spaceOf(ui.view);
   const I={home:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4 11l8-6 8 6v8a1 1 0 0 1-1 1h-4v-5h-6v5H5a1 1 0 0 1-1-1z"/></svg>',sp:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="4" y="4" width="7" height="7"/><rect x="13" y="4" width="7" height="7"/><rect x="4" y="13" width="7" height="7"/><rect x="13" y="13" width="7" height="7"/></svg>',set:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>'};
   document.getElementById('tabbar').innerHTML=`<button class="tab" data-view="home"${ui.view==='home'?' aria-current="page"':''}>${I.home}<span>홈</span></button><button class="tab" data-act="dlg" data-d="spaces"${cur?' aria-current="page"':''}>${I.sp}<span>${cur?esc(cur.name):'공간'}</span></button><button class="tab" data-act="dlg" data-d="search"${ui.dlg==='search'?' aria-current="page"':''}>${ICON.search}<span>검색</span></button><button class="tab" data-view="settings"${ui.view==='settings'?' aria-current="page"':''}>${I.set}<span>관리</span></button>`;
@@ -1541,7 +1536,7 @@ document.addEventListener('click',e=>{
     case 'delchap':if(!confirm('이 챕터를 삭제할까요? 중간 목표는 그대로예요.'))return;state.chapters=state.chapters.filter(c=>c.id!==id);break;
     case 'export':{const blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'});const l=document.createElement('a');l.href=URL.createObjectURL(blob);l.download='작업공간-백업-'+TODAY+'.json';document.body.appendChild(l);l.click();setTimeout(()=>{URL.revokeObjectURL(l.href);l.remove()},500);toast('백업 파일을 내보냈어요');return}
     case 'import':document.getElementById('importFile').click();return;
-    case 'reset':if(!confirm('모든 내용을 지우고 예시 상태로 되돌릴까요? 로그인 중이면 다른 기기에도 반영돼요.'))return;state=migrate(seed());forcePush=true;ui.view='home';break;
+    case 'reset':if(!confirm('모든 내용을 지우고 예시 상태로 되돌릴까요? "서버에 저장"을 누르기 전까지는 이 기기에만 적용돼요.'))return;state=migrate(seed());forcePush=true;ui.view='home';break;
     default:return;
   }
   save();render();
