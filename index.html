@@ -562,6 +562,10 @@ mark{background:#FFE7A0;color:inherit;border-radius:3px;padding:0 1px}
   .mcal{padding:12px}
   .tadd{flex-wrap:wrap}.tadd input[name=text]{flex:1 1 100%}.tadd input[type=date]{flex:1;width:auto}
 }
+
+/* ===== v9 ===== */
+.phl{display:inline-flex;gap:14px}
+.stale{position:fixed;left:50%;top:calc(12px + env(safe-area-inset-top,0px));transform:translateX(-50%);z-index:60;background:var(--ink);color:var(--bg);padding:10px 14px;border-radius:12px;font-size:14px;display:flex;gap:10px;align-items:center;box-shadow:0 6px 24px rgba(0,0,0,.2);max-width:calc(100vw - 24px)}
 </style>
 
 </head>
@@ -588,7 +592,7 @@ mark{background:#FFE7A0;color:inherit;border-radius:3px;padding:0 1px}
 const CONFIG_DEFAULT={
   SUPABASE_URL:'https://sggopzkdznrpixcgdpjf.supabase.co',
   SUPABASE_ANON_KEY:'sb_publishable_mP2IQSLYwoJhsEqx8UX1Fg_1CwVk2GJ',
-  GOOGLE_CLIENT_ID:'634088716436-b8j56nkjfbn8kg8h58qbuam24ldqrl56.apps.googleusercontent.com',
+  GOOGLE_CLIENT_ID:'여기에_구글_클라이언트_ID',
   AI_FUNCTION:'ai-organize',
   CAL_FUNCTION:'calendar-feed'
 };
@@ -699,29 +703,47 @@ function setBase(o){base=o?JSON.parse(JSON.stringify(o)):null;try{base?localStor
 function same(a,b){if(a===b)return true;if(a===null||b===null||typeof a!=='object'||typeof b!=='object')return false;if(Array.isArray(a)!==Array.isArray(b))return false;if(Array.isArray(a)){if(a.length!==b.length)return false;for(let i=0;i<a.length;i++)if(!same(a[i],b[i]))return false;return true}const ka=Object.keys(a),kb=Object.keys(b);if(ka.length!==kb.length)return false;for(const k of ka)if(!same(a[k],b[k]))return false;return true}
 const isObj=v=>!!v&&typeof v==='object'&&!Array.isArray(v);
 const idArr=v=>Array.isArray(v)&&v.every(x=>isObj(x)&&typeof x.id==='string');
+let MT={};
 function merge3(b,l,r){
-  if(same(l,r))return l;if(same(b,l))return r;if(same(b,r))return l;
-  if(isObj(l)&&isObj(r)){const o={},bb=isObj(b)?b:{};new Set([...Object.keys(l),...Object.keys(r)]).forEach(k=>{const v=merge3(bb[k],l[k],r[k]);if(v!==undefined)o[k]=v});return o}
-  if(idArr(l)&&idArr(r)&&(l.length||r.length)){
+  if(same(l,r))return l;
+  if(idArr(l)&&idArr(r)){
+    /* 지운 기록(tomb)이 없는 항목은 한쪽에만 있어도 절대 버리지 않아요 */
     const bm=new Map((Array.isArray(b)?b:[]).filter(isObj).map(x=>[x.id,x])),lm=new Map(l.map(x=>[x.id,x])),rm=new Map(r.map(x=>[x.id,x])),out=[];
-    l.forEach(x=>{const bi=bm.get(x.id),ri=rm.get(x.id);if(ri)out.push(merge3(bi,x,ri));else if(!bi||!same(bi,x))out.push(x)});
-    r.forEach((x,i)=>{if(lm.has(x.id))return;const bi=bm.get(x.id);if(bi&&same(bi,x))return;out.splice(Math.min(i,out.length),0,x)});
+    l.forEach(x=>{const ri=rm.get(x.id);if(ri)out.push(merge3(bm.get(x.id),x,ri));else if(!MT[x.id])out.push(x)});
+    r.forEach((x,i)=>{if(lm.has(x.id)||MT[x.id])return;out.splice(Math.min(i,out.length),0,x)});
     return out;
   }
+  if(isObj(l)&&isObj(r)){const o={},bb=isObj(b)?b:{};new Set([...Object.keys(l),...Object.keys(r)]).forEach(k=>{const v=merge3(bb[k],l[k],r[k]);if(v!==undefined)o[k]=v});return o}
+  if(same(b,l))return r;if(same(b,r))return l;
   return l;
 }
-function save(){state._updated=Date.now();writeLocal();schedulePush()}
+function mergeState(b,l,r){
+  MT=Object.assign({},b&&b.tomb,l&&l.tomb,r&&r.tomb);
+  const cut=addDays(TODAY,-60);Object.keys(MT).forEach(k=>{if(String(MT[k])<cut)delete MT[k]});
+  const m=merge3(b,l,r);m.tomb=MT;MT={};return m;
+}
+const APP_VER=9;let readOnly=false;
+function staleBlock(){if(readOnly)return;readOnly=true;clearTimeout(pushTimer);const bn=document.createElement('div');bn.className='stale';bn.innerHTML='새 버전이 나왔어요. 새로고침하면 최신 기록이 보여요. <button class="btn sm" onclick="location.reload()">새로고침</button>';document.body.appendChild(bn)}
+function checkDel(){
+  if(typeof ui==='undefined'||!ui.delCand||!ui.delCand.length)return;
+  const j=JSON.stringify(state);ui.delCand.forEach(id=>{if(id&&!j.includes('"'+id+'"'))(state.tomb=state.tomb||{})[id]=TODAY});ui.delCand=[];
+}
+function save(){checkDel();state._updated=Date.now();writeLocal();if(readOnly){setSync('err');return}schedulePush()}
 function schedulePush(){if(!sb||!session)return;setSync('saving');clearTimeout(pushTimer);pushTimer=setTimeout(push,1200)}
-async function remoteStamp(){const {data,error}=await sb.from('workspace').select('stamp:data->_updated').eq('user_id',session.user.id).maybeSingle();if(error)throw error;return data?data.stamp:null}
+async function remoteStamp(){const {data,error}=await sb.from('workspace').select('stamp:data->_updated,ver:data->appVer').eq('user_id',session.user.id).maybeSingle();if(error)throw error;if(data&&(+data.ver||0)>APP_VER)staleBlock();return data?data.stamp:null}
 async function fetchRemote(){const {data,error}=await sb.from('workspace').select('data').eq('user_id',session.user.id).maybeSingle();if(error)throw error;return data&&data.data}
 async function push(){
   if(!sb||!session)return;if(!navigator.onLine){setSync('off');return}
+  if(readOnly)return;
   if(pushing){pendingPush=true;return}pushing=true;
+  state.appVer=Math.max(state.appVer||0,APP_VER);
   const uidv=session.user.id,stamp=o=>new Date(o._updated||Date.now()).toISOString();
   try{
     if(forcePush){const snap=JSON.parse(JSON.stringify(state));const {error}=await sb.from('workspace').upsert({user_id:uidv,data:snap,updated_at:stamp(snap)});if(error)throw error;forcePush=false;setBase(snap);setSync('ok');return}
     for(let tries=0;tries<4;tries++){
-      if(!base){const remote=await fetchRemote();if(remote){const m=merge3(null,state,remote);m._updated=Date.now();state=migrate(m);writeLocal();setBase(remote);render()}}
+      if(!base){const remote=await fetchRemote();if(remote){const m=mergeState(null,state,remote);m._updated=Date.now();state=migrate(m);writeLocal();setBase(remote);render()}}
+      /* 지운 기록 없이 사라진 항목은 다시 살려서 올려요 */
+      if(base){const g=mergeState(base,state,base);if(!same(g.todos,state.todos)||!same(g.routines,state.routines)||!same(g.data,state.data)){state=g;writeLocal();render()}}
       const snap=JSON.parse(JSON.stringify(state));
       if(!base){
         const {error}=await sb.from('workspace').insert({user_id:uidv,data:snap,updated_at:stamp(snap)});
@@ -734,7 +756,7 @@ async function push(){
       if(rows&&rows.length){setBase(snap);setSync('ok');return}
       const remote=await fetchRemote();
       if(!remote){setBase(null);continue}
-      const merged=merge3(base,state,remote);merged._updated=Date.now();state=migrate(merged);writeLocal();setBase(remote);render();toast('다른 기기에서 바뀐 내용과 합쳤어요');
+      if((remote.appVer||0)>APP_VER){staleBlock();return}const merged=mergeState(base,state,remote);merged._updated=Date.now();state=migrate(merged);writeLocal();setBase(remote);render();
     }
     throw new Error('동기화 충돌이 계속돼요');
   }catch(e){console.error(e);setSync('err');clearTimeout(pushTimer);pushTimer=setTimeout(push,15000)}
@@ -749,9 +771,9 @@ async function pull(){
   const adopt=r=>{const was=!!(r.v5&&r.v8);state=migrate(r);writeLocal();setBase(r);render();if(!was)save();else setSync('ok')};
   if(!remote){if(!state._updated)state._updated=Date.now();writeLocal();await push()}
   else if(!linked)adopt(remote);
+  else if((remote.appVer||0)>APP_VER){staleBlock()}
   else if(base&&String(remote._updated)===String(base._updated)){if(dirty)await push();else setSync('ok')}
-  else if(!dirty)adopt(remote);
-  else{const merged=merge3(base,state,remote);merged._updated=Date.now();state=migrate(merged);writeLocal();setBase(remote);render();await push()}
+  else{const merged=mergeState(base,state,remote);const changed=!same(merged.todos,remote.todos)||!same(merged.data,remote.data)||!same(merged.routines,remote.routines);state=migrate(merged);if(changed){state._updated=Date.now();writeLocal();setBase(remote);render();await push()}else{state._updated=remote._updated;writeLocal();setBase(remote);render();setSync('ok')}}
   try{localStorage.setItem(linkKey,session.user.id)}catch(e){}
 }
 async function initSync(){
@@ -762,6 +784,7 @@ async function initSync(){
 }
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')pull()});
 window.addEventListener('online',()=>{if(session)push()});
+window.addEventListener('storage',e=>{if(e.key===KEY&&e.newValue){try{state=JSON.parse(e.newValue);base=JSON.parse(localStorage.getItem(BASEKEY)||'null');render()}catch(x){}}});
 setInterval(async()=>{if(document.visibilityState!=='visible'||!sb||!session||pushing||syncState==='saving')return;try{const st=await remoteStamp();if(st!=null&&base&&String(st)!==String(base._updated))pull()}catch(e){}},45000);
 function loginMsg(m){const el=document.getElementById('loginMsg');if(el)el.textContent=m}
 let state=load();
@@ -889,6 +912,14 @@ function hero(rev){
   return `<section class="hero ${rev?'rev':''}"><div class="hero-main"><p class="hero-title">${esc(main.title)}</p><span class="small">${main.date.slice(0,4)}년 ${dlabel(main.date)}</span></div><div class="hero-stub"><span class="dnum">${dday(main.date)}</span></div></section>
   <div class="keys">${ks.filter(k=>k!==main).map(k=>`<span>${esc(k.title)}<b>${dday(k.date)}</b></span>`).join('')}<button class="link" data-act="dlg" data-d="keys">중요 일정 편집</button></div>`;
 }
+function doneHistory(){
+  const from=addDays(TODAY,-30),by={};const put=(d,h)=>{if(d>=from&&d<=TODAY)(by[d]=by[d]||[]).push(h)};
+  state.todos.filter(t=>t.done).forEach(t=>put(t.date,todoItem(t,false)));
+  (state.routines||[]).forEach(r=>Object.keys(r.done||{}).forEach(d=>put(d,rtItem(r,d))));
+  allMs().filter(x=>x.m.done).forEach(x=>put(x.m.date,msItem(x,false)));
+  const days=Object.keys(by).sort().reverse();
+  return days.length?days.map(d=>`<div class="dayhd">${dlabel(d)} <span class="small">${by[d].length}개</span></div><ul class="list">${by[d].join('')}</ul>`).join(''):'<p class="empty">최근 30일 동안 완료한 일이 없어요.</p>';
+}
 function weekPanel(cls,group){
   const ds=[...Array(7)].map((_,i)=>addDays(ui.week,i)),AM=allMs().filter(x=>!msDupe(x));
   const strip=`<div class="week"><button class="wkbtn" data-act="wk" data-n="-7" aria-label="지난주">‹</button>${ds.map((d,i)=>{const n=state.todos.filter(t=>t.date===d).length+AM.filter(x=>x.m.date===d).length+routinesOn(d).length;return `<button class="day ${d===TODAY?'is-today':''}" data-act="day" data-d="${d}" aria-pressed="${d===ui.day}" aria-label="${dlabel(d)}, 할 일 ${n}개"><span class="wd">${WD[i]}</span><span class="dn">${parse(d).getDate()}</span><span class="dots">${'<i></i>'.repeat(Math.min(n,4))}</span></button>`}).join('')}<button class="wkbtn" data-act="wk" data-n="7" aria-label="다음 주">›</button></div>`;
@@ -896,7 +927,8 @@ function weekPanel(cls,group){
   const over=ui.day===TODAY?state.todos.filter(t=>t.date<TODAY&&!t.done):[],mover=ui.day===TODAY?AM.filter(x=>x.m.date<TODAY&&!x.m.done):[];
   const items=[...list.map(t=>({sp:t.space||'',html:todoItem(t,false,group)})),...routinesOn(ui.day).map(r=>({sp:r.space||'',html:rtItem(r,ui.day,group)})),...mlist.map(x=>({sp:x.sp.id,html:msItem(x,false,group)}))];
   const overN=over.length+mover.length;
-  return `<section class="panel ${cls}"><div class="ph"><h2>${ui.day===TODAY?'오늘 할 일':dlabel(ui.day)}</h2>${ui.day!==TODAY?'<button class="link" data-act="gotoday">오늘로</button>':''}</div>${strip}
+  if(ui.hdone)return `<section class="panel ${cls}"><div class="ph"><h2>완료한 일</h2><button class="link" data-act="hdone">할 일로 돌아가기</button></div>${doneHistory()}</section>`;
+  return `<section class="panel ${cls}"><div class="ph"><h2>${ui.day===TODAY?'오늘 할 일':dlabel(ui.day)}</h2><span class="phl">${ui.day!==TODAY?'<button class="link" data-act="gotoday">오늘로</button>':''}<button class="link" data-act="hdone">완료한 일 보기</button></span></div>${strip}
   ${overN?`<span class="ovl">밀린 일 ${overN}개</span><ul class="list ovlist">${over.map(t=>todoItem(t,true)).join('')}${mover.map(x=>msItem(x,true)).join('')}</ul><div class="dayhd">${dlabel(ui.day)}</div>`:''}
   ${!items.length?'<p class="empty">이날은 할 일이 없어요. 아래에 적거나, 목표에 날짜가 있는 중간 목표를 넣으면 자동으로 떠요.</p>':group?[...state.spaces.map(x=>x.id),''].filter(id=>items.some(t=>t.sp===id)).map(id=>`<div class="grp">${esc(spName(id))}</div><ul class="list">${items.filter(t=>t.sp===id).map(t=>t.html).join('')}</ul>`).join(''):`<ul class="list">${items.map(t=>t.html).join('')}</ul>`}
   <form class="addrow" id="addTodo"><input name="text" placeholder="할 일 추가" required aria-label="할 일"><select name="space" aria-label="공간">${state.spaces.map(s=>`<option value="${s.id}">${esc(s.name)}</option>`).join('')}<option value="">기타</option></select>${repeatSel()}<button class="btn" type="submit">추가</button></form></section>`;
@@ -1370,7 +1402,7 @@ async function compact(manual){
     const old=state.todos.filter(t=>t.done&&t.date<cut90);
     if(old.length){const byM={};old.forEach(t=>{const p=t.date.slice(0,7);(byM[p]=byM[p]||[]).push({...t,spaceName:spName(t.space)})});
       const {error}=await sb.from('workspace_archive').insert(Object.entries(byM).map(([p,items])=>({kind:'todos',period:p,data:{items}})));
-      if(!error){const ids=new Set(old.map(t=>t.id));old.forEach(t=>{state.hist[t.date]=(state.hist[t.date]||0)+1});state.todos=state.todos.filter(t=>!ids.has(t.id));moved+=old.length}}
+      if(!error){const ids=new Set(old.map(t=>t.id));state.tomb=state.tomb||{};old.forEach(t=>state.tomb[t.id]=TODAY);old.forEach(t=>{state.hist[t.date]=(state.hist[t.date]||0)+1});state.todos=state.todos.filter(t=>!ids.has(t.id));moved+=old.length}}
     const rows=[],strip=[];
     state.spaces.forEach(sp=>sp.blocks.forEach(b=>{if(b.type!=='inbox')return;data(b).forEach(e=>{if(e.date<cut90&&!e.archived&&(e.raw||'').length>300){rows.push({kind:'inbox',period:e.date.slice(0,7),data:{...e,spaceName:sp.name}});strip.push(e)}})}));
     if(rows.length){const {error}=await sb.from('workspace_archive').insert(rows);if(!error){strip.forEach(e=>{e.raw=e.raw.slice(0,300)+'…';e.archived=true});moved+=rows.length}}
@@ -1597,11 +1629,15 @@ document.addEventListener('submit',e=>{
   if(ds.edit){const[bid,id]=ds.edit.split('|');const it=byId(data(blockOf(bid)),id);if(it)Object.keys(fd).forEach(k=>it[k]=T(fd[k]))}
   else if(ds.gedit){const[bid,gid]=ds.gedit.split('|');const g=byId(data(blockOf(bid)),gid);g.title=T(fd.title);g.due=fd.due}
   else if(ds.medit){const[bid,gid,mid]=ds.medit.split('|');const m=byId(byId(data(blockOf(bid)),gid).ms,mid);m.title=T(fd.title);m.date=fd.date}
-  else if(ds.tedit){const t=byId(state.todos,ds.tedit);if(fd.repeat&&fd.repeat!=='none'){state.todos=state.todos.filter(x=>x!==t);addTask(fd.text,fd.date,fd.space,fd.repeat)}else{t.text=T(fd.text);t.date=fd.date;t.space=fd.space}}
-  else if(ds.redit){const r=byId(state.routines||[],ds.redit);if(fd.repeat==='none'){state.routines=state.routines.filter(x=>x!==r);addTask(fd.text,ui.day,fd.space,'none')}else Object.assign(r,{text:T(fd.text),space:fd.space,rule:fd.repeat,start:fd.start,end:fd.end||''})}
+  else if(ds.tedit){const t=byId(state.todos,ds.tedit);if(fd.repeat&&fd.repeat!=='none'){(state.tomb=state.tomb||{})[t.id]=TODAY;state.todos=state.todos.filter(x=>x!==t);addTask(fd.text,fd.date,fd.space,fd.repeat)}else{t.text=T(fd.text);t.date=fd.date;t.space=fd.space}}
+  else if(ds.redit){const r=byId(state.routines||[],ds.redit);if(fd.repeat==='none'){(state.tomb=state.tomb||{})[r.id]=TODAY;state.routines=state.routines.filter(x=>x!==r);addTask(fd.text,ui.day,fd.space,'none')}else Object.assign(r,{text:T(fd.text),space:fd.space,rule:fd.repeat,start:fd.start,end:fd.end||''})}
   else if(ds.review){const bk=byId(data(blockOf(ui.rv.bid)),ui.rv.id);bk.review={stars:+fd.stars||0,line:T(fd.line||''),quote:T(fd.quote||''),text:T(fd.text||''),date:TODAY};bk.end=fd.end||bk.end;bk.status='다 읽음';dlg.close()}
   ui.editing=null;save();render();toast('저장했어요');
 });
+
+const DELACT={deltodo:'id',del:'id',delacc:'id',delchap:'id',delcheck:'id',delgoal:'id',delkey:'id',delspace:'s',deltpl:'t',fdel:'id',msdel:'id',rdel:'id',bdel:'b'};
+document.addEventListener('click',e=>{const el=e.target.closest&&e.target.closest('[data-act]');if(!el)return;const k=DELACT[el.dataset.act];if(k){ui.delCand=ui.delCand||[];ui.delCand.push(el.dataset[k])}},true);
+document.addEventListener('click',e=>{const el=e.target.closest&&e.target.closest('[data-act="hdone"]');if(!el)return;ui.hdone=!ui.hdone;render();window.scrollTo(0,0)});
 render();
 initSync();
 </script>
