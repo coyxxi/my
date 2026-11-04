@@ -566,6 +566,24 @@ mark{background:#FFE7A0;color:inherit;border-radius:3px;padding:0 1px}
 /* ===== v9 ===== */
 .phl{display:inline-flex;gap:14px}
 .stale{position:fixed;left:50%;top:calc(12px + env(safe-area-inset-top,0px));transform:translateX(-50%);z-index:60;background:var(--ink);color:var(--bg);padding:10px 14px;border-radius:12px;font-size:14px;display:flex;gap:10px;align-items:center;box-shadow:0 6px 24px rgba(0,0,0,.2);max-width:calc(100vw - 24px)}
+
+/* ===== v10: 홈 진행 패널 편집, 읽는 중, 작업 중 ===== */
+.prow{display:grid;grid-template-columns:auto 64px 1fr 40px 38px;gap:8px;align-items:center;font-size:14px;padding:4px 0}
+.prow.off>span:nth-child(2),.prow.off .n{opacity:.45}
+.prow.off .bar{visibility:hidden}
+.pmv{display:inline-flex}.pmv .icon{padding:4px 5px}
+.sw{all:unset;cursor:pointer;width:34px;height:20px;border-radius:999px;background:var(--line);position:relative;justify-self:end}
+.sw::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.25);transition:left .15s}
+.sw.on{background:var(--accent)}.sw.on::after{left:16px}
+.sw:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.pnote{font-size:12px;color:var(--muted);margin:8px 0 0}
+.pbtns{display:flex;gap:8px;margin-top:10px}
+.ipi2{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 0;border-top:1px solid var(--line)}
+.ipi2:first-of-type{border-top:0}
+.ipi2 b{font-size:14px;display:block;font-weight:600}
+.ipi2 .small{display:block}
+.ipi2 .chip{color:var(--accent)}
+@media (prefers-reduced-motion: reduce){.sw::after{transition:none}}
 </style>
 
 </head>
@@ -822,7 +840,7 @@ const LT={
     extra:(i,b)=>`<button class="chip st-${Math.max(0,BSTATUS.indexOf(i.status))}" data-act="bstatus" data-b="${b.id}" data-id="${i.id}">${esc(i.status||BSTATUS[0])}</button>`},
   works:{add:'+ 작업물 추가',fields:[['title','작업명','text'],['tool','툴','text','o'],['note','배운 점','text','o']],
     row:i=>`<b>${esc(i.title)}</b><span class="small">${esc(i.tool)}${i.note?' / '+esc(i.note):''}</span>`,
-    extra:(i,b)=>`<button class="chip" data-act="pf" data-b="${b.id}" data-id="${i.id}" aria-pressed="${!!i.pf}">포트폴리오 후보</button>`}
+    extra:(i,b)=>`<button class="chip${(i.status||'작업 중')==='완료'?'':' st-1'}" data-act="wstatus" data-b="${b.id}" data-id="${i.id}">${esc(i.status||'작업 중')}</button><button class="chip" data-act="pf" data-b="${b.id}" data-id="${i.id}" aria-pressed="${!!i.pf}">포트폴리오 후보</button>`}
 };
 const PEN='<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20l4-1 11-11-3-3L5 16z"/><path d="M14 6l3 3"/></svg>';
 const editBtn=k=>`<button class="icon" data-act="eopen" data-k="${k}" aria-label="수정">${PEN}</button>`;
@@ -933,9 +951,26 @@ function weekPanel(cls,group){
   ${!items.length?'<p class="empty">이날은 할 일이 없어요. 아래에 적거나, 목표에 날짜가 있는 중간 목표를 넣으면 자동으로 떠요.</p>':group?[...state.spaces.map(x=>x.id),''].filter(id=>items.some(t=>t.sp===id)).map(id=>`<div class="grp">${esc(spName(id))}</div><ul class="list">${items.filter(t=>t.sp===id).map(t=>t.html).join('')}</ul>`).join(''):`<ul class="list">${items.map(t=>t.html).join('')}</ul>`}
   <form class="addrow" id="addTodo"><input name="text" placeholder="할 일 추가" required aria-label="할 일"><select name="space" aria-label="공간">${state.spaces.map(s=>`<option value="${s.id}">${esc(s.name)}</option>`).join('')}<option value="">기타</option></select>${repeatSel()}<button class="btn" type="submit">추가</button></form></section>`;
 }
+const hp=()=>state.homePrefs||(state.homePrefs={hidden:{},order:[],progOff:false});
+function progSpaces(){const P=hp(),ord=P.order||[];return state.spaces.slice().sort((a,b)=>{const ia=ord.indexOf(a.id),ib=ord.indexOf(b.id);return (ia<0?999:ia)-(ib<0?999:ib)})}
 function progPanel(){
+  const P=hp();if(P.progOff&&!ui.progEdit)return '';
   const d0=ui.week,d1=addDays(ui.week,6),wr=[];for(let i=0;i<7;i++){const d=addDays(d0,i);routinesOn(d).forEach(r=>wr.push({sp:r.space,done:!!(r.done&&r.done[d])}))}const wk=state.todos.filter(t=>t.date>=d0&&t.date<=d1),wm=allMs().filter(x=>x.m.date>=d0&&x.m.date<=d1&&!msDupe(x));
-  return `<section class="panel"><div class="ph"><h2>이번 주 진행</h2></div>${state.spaces.map(s=>{const a=wk.filter(t=>t.space===s.id).map(t=>t.done).concat(wm.filter(x=>x.sp.id===s.id).map(x=>x.m.done)).concat(wr.filter(x=>x.sp===s.id).map(x=>x.done)),d=a.filter(Boolean).length,p=a.length?Math.round(d/a.length*100):0;return `<div class="prog"><span>${esc(s.name)}</span><div class="bar"><span style="width:${p}%"></span></div><span class="n">${d}/${a.length}</span></div>`}).join('')}</section>`;
+  const list=progSpaces(),ed=ui.progEdit,shown=ed?list:list.filter(s=>!P.hidden[s.id]);
+  const rows=shown.map((s,k)=>{const a=wk.filter(t=>t.space===s.id).map(t=>t.done).concat(wm.filter(x=>x.sp.id===s.id).map(x=>x.m.done)).concat(wr.filter(x=>x.sp===s.id).map(x=>x.done)),d=a.filter(Boolean).length,p=a.length?Math.round(d/a.length*100):0,off=!!P.hidden[s.id];
+    if(!ed)return `<div class="prog"><span>${esc(s.name)}</span><div class="bar"><span style="width:${p}%"></span></div><span class="n">${d}/${a.length}</span></div>`;
+    return `<div class="prow${off?' off':''}"><span class="pmv"><button class="icon" data-act="progmv" data-s="${s.id}" data-n="-1"${k===0?' disabled':''} aria-label="위로">↑</button><button class="icon" data-act="progmv" data-s="${s.id}" data-n="1"${k===list.length-1?' disabled':''} aria-label="아래로">↓</button></span><span>${esc(s.name)}</span><div class="bar"><span style="width:${p}%"></span></div><span class="n">${d}/${a.length}</span><button class="sw${off?'':' on'}" data-act="progtog" data-s="${s.id}" role="switch" aria-checked="${!off}" aria-label="${esc(s.name)} 보이기"></button></div>`}).join('');
+  return `<section class="panel"><div class="ph"><h2>이번 주 진행</h2><button class="link" data-act="progedit">${ed?'완료':'편집'}</button></div>${rows||'<p class="empty">편집에서 보여줄 공간을 켜주세요.</p>'}${ed?`<p class="pnote">켠 공간만 홈에 보여요. 화살표로 순서를 바꿀 수 있어요.</p><div class="pbtns"><button class="btn ghost sm" data-act="progoff">${P.progOff?'패널 다시 보이기':'패널 숨기기'}</button></div>`:''}</section>`;
+}
+function readingPanel(){
+  const R=[];state.spaces.forEach(sp=>sp.blocks.forEach(b=>{if(b.type==='books')(state.data[b.id]||[]).forEach(i=>{if(i.status==='읽는 중')R.push({i,b})})}));
+  if(!R.length)return '';
+  return `<section class="panel inprog2"><div class="ph"><h2>읽는 중</h2><span class="small">${R.length}권</span></div>${R.map(({i,b})=>`<div class="ipi2"><div><b>${esc(i.title)}</b><span class="small">${i.author?esc(i.author)+' / ':''}${i.date?(parse(i.date).getMonth()+1)+'월 '+parse(i.date).getDate()+'일부터':''}</span></div><button class="chip" data-act="hbookdone" data-b="${b.id}" data-id="${i.id}">다 읽음</button></div>`).join('')}</section>`;
+}
+function workPanel(){
+  const W=[];state.spaces.forEach(sp=>sp.blocks.forEach(b=>{const D=state.data[b.id]||[];if(b.type==='works')D.forEach(i=>{if((i.status||'작업 중')==='작업 중')W.push({i,b,sp,t:i.title})});if(b.type==='links')D.forEach(i=>{if(i.status==='진행 중')W.push({i,b,sp,t:i.title})})}));
+  if(!W.length)return '';
+  return `<section class="panel inprog2"><div class="ph"><h2>작업 중</h2><span class="small">${W.length}개</span></div>${W.map(({i,b,sp,t})=>`<div class="ipi2"><div><b>${esc(t)}</b><span class="small">${esc(sp.name)} / ${esc(b.title)}</span></div><button class="chip" data-act="hworkdone" data-b="${b.id}" data-id="${i.id}">완료</button></div>`).join('')}</section>`;
 }
 function upPanel(c){
   let ms=allMs().filter(x=>!x.m.done);ms=c?ms.filter(x=>x.m.date>=c.start&&x.m.date<=c.end):ms.filter(x=>x.m.date>=TODAY);
@@ -968,7 +1003,7 @@ function home(){
   const strip=`<div class="chapters" role="group" aria-label="챕터">${cs.map(x=>chapBtn(x,c)).join('')}</div>`;
   if(L==='a2')return hero()+chapTimeline(c)+`<div class="grid">${weekPanel('s7')}<div class="s5 stack">${upPanel(c)}${progPanel()}<div>${chapEdit}</div></div></div>`;
   if(L==='a3')return hero(true)+strip+`<div class="grid">${weekPanel('s7',true)}<div class="s5 stack">${progPanel()}${upPanel(c)}<div>${chapEdit}</div></div></div>`;
-  return hero()+strip+`<div class="grid">${weekPanel('s7')}<div class="s5 stack">${upPanel(c)}${progPanel()}${routinePanel()}<div>${chapEdit}</div></div></div>`;
+  return hero()+strip+`<div class="grid">${weekPanel('s7')}<div class="s5 stack">${upPanel(c)}${readingPanel()}${workPanel()}${progPanel()}${routinePanel()}<div class="phl">${chapEdit}${hp().progOff?'<button class="link" data-act="progoff">이번 주 진행 다시 보기</button>':''}</div></div></div>`;
 }
 function spacePage(sp){
   const n=sp.blocks.length;
@@ -1516,7 +1551,7 @@ document.addEventListener('submit',e=>{
   if(ds.login){loginMsg('');sb.auth.signInWithPassword({email:fd.email.trim(),password:fd.pw}).then(async({data,error})=>{if(error){loginMsg('로그인하지 못했어요. 이메일과 비밀번호를 확인하세요.');return}session=data.session;dlg.close();await pull();render();toast('로그인했어요')});return}
   if(ds.quick){addTask(fd.text,fd.date,fd.space,fd.repeat);dlg.close();toast(fd.date===TODAY?'오늘 할 일에 추가했어요':fd.date+' 할 일에 추가했어요');save();render();return}
   if(f.id==='addTodo')addTask(fd.text,ui.day,fd.space,fd.repeat);
-  else if(ds.list){const b=blockOf(ds.list);data(b).unshift({id:uid(),...fd,...(b.type==='links'?{status:'예정'}:{}),...(b.type==='checklist'?{done:false}:{}),...(b.type==='books'?{status:'읽는 중'}:{})});toast('저장했어요')}
+  else if(ds.list){const b=blockOf(ds.list);data(b).unshift({id:uid(),...fd,...(b.type==='links'?{status:'예정'}:{}),...(b.type==='checklist'?{done:false}:{}),...(b.type==='books'?{status:'읽는 중'}:{}),...(b.type==='works'?{status:'작업 중'}:{})});toast('저장했어요')}
   else if(ds.ms){const[bid,gid]=ds.ms.split('|');byId(data(blockOf(bid)),gid).ms.push({id:uid(),title:fd.title.trim(),date:fd.date,done:false})}
   else if(ds.goal)data(blockOf(ds.goal)).push({id:uid(),title:fd.title.trim(),due:fd.due,ms:[]});
   else if(ds.acc)data(blockOf(ds.acc)).accounts.push({id:uid(),name:fd.name.trim(),kind:fd.kind,target:+fd.target||0});
@@ -1638,6 +1673,17 @@ document.addEventListener('submit',e=>{
 const DELACT={deltodo:'id',del:'id',delacc:'id',delchap:'id',delcheck:'id',delgoal:'id',delkey:'id',delspace:'s',deltpl:'t',fdel:'id',msdel:'id',rdel:'id',bdel:'b'};
 document.addEventListener('click',e=>{const el=e.target.closest&&e.target.closest('[data-act]');if(!el)return;const k=DELACT[el.dataset.act];if(k){ui.delCand=ui.delCand||[];ui.delCand.push(el.dataset[k])}},true);
 document.addEventListener('click',e=>{const el=e.target.closest&&e.target.closest('[data-act="hdone"]');if(!el)return;ui.hdone=!ui.hdone;render();window.scrollTo(0,0)});
+
+document.addEventListener('click',e=>{
+  const el=e.target.closest&&e.target.closest('[data-act]');if(!el)return;const a=el.dataset.act,P=hp();
+  if(a==='progedit'){ui.progEdit=!ui.progEdit;render();return}
+  if(a==='progtog'){P.hidden=P.hidden||{};const id=el.dataset.s;if(P.hidden[id])delete P.hidden[id];else P.hidden[id]=true;save();render();return}
+  if(a==='progmv'){const ids=progSpaces().map(s=>s.id),k=ids.indexOf(el.dataset.s),j=k+(+el.dataset.n);if(j<0||j>=ids.length)return;[ids[k],ids[j]]=[ids[j],ids[k]];P.order=ids;save();render();return}
+  if(a==='progoff'){P.progOff=!P.progOff;if(P.progOff)ui.progEdit=false;save();render();toast(P.progOff?'이번 주 진행을 숨겼어요. 오른쪽 아래에서 다시 볼 수 있어요':'이번 주 진행을 다시 보여요');return}
+  if(a==='hbookdone'){const it=byId(data(blockOf(el.dataset.b)),el.dataset.id);if(!it)return;it.status='다 읽음';it.end=TODAY;save();render();toast('다 읽었어요. 독서 공간에서 독서 노트를 쓸 수 있어요');return}
+  if(a==='hworkdone'){const b=blockOf(el.dataset.b),it=byId(data(b),el.dataset.id);if(!it)return;it.status='완료';save();render();toast('완료했어요');return}
+  if(a==='wstatus'){const it=byId(data(blockOf(el.dataset.b)),el.dataset.id);if(!it)return;it.status=(it.status||'작업 중')==='완료'?'작업 중':'완료';save();render();return}
+});
 render();
 initSync();
 </script>
