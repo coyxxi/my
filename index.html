@@ -592,6 +592,12 @@ mark{background:#FFE7A0;color:inherit;border-radius:3px;padding:0 1px}
 .sync[data-s="dirty"]{color:#B4532A;font-weight:600}.sync[data-s="dirty"]::before{background:#E08A5E}
 .sync[data-s="newer"]{color:var(--accent);font-weight:600}.sync[data-s="newer"]::before{background:var(--accent)}
 @media (max-width:760px){.topbar{gap:8px}.synwrap{width:100%;justify-content:space-between}}
+
+/* ===== v12 ===== */
+.synbtn{font-size:16px;opacity:.75;padding:2px 6px}
+.sync[data-s="conflict"]{color:#B4532A;font-weight:600}.sync[data-s="conflict"]::before{background:#E08A5E}
+.sync[data-s="saving"]::before,.sync[data-s="dirty"]::before{background:var(--muted)}
+.sync[data-s="dirty"]{color:var(--muted);font-weight:400}
 </style>
 
 </head>
@@ -717,87 +723,110 @@ function seed(){
 function load(){try{const r=localStorage.getItem(KEY);if(r){const s=JSON.parse(r);if(s&&Array.isArray(s.spaces)&&s.data)return migrate(s)}}catch(e){}return migrate(seed())}
 const SYNC_READY=/^https:\/\//.test(CONFIG.SUPABASE_URL)&&CONFIG.SUPABASE_ANON_KEY.length>20&&!/여기에/.test(CONFIG.SUPABASE_ANON_KEY)&&!!window.supabase;
 const sb=SYNC_READY?window.supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY):null;
-/* ===== 직접 저장 / 가져오기 방식 =====
-   - 무엇을 하든 이 기기에만 바로 저장돼요.
-   - "서버에 저장"을 누르면 이 기기 내용이 최종 데이터가 돼요.
-   - 다른 기기는 "최신 가져오기"를 누르면 서버의 최종 데이터로 통째로 바뀌어요.
-   - 앱이 알아서 합치거나 올리거나 바꾸지 않아요. */
-let session=null,syncState='local',busy=false,forcePush=false,readOnly=false;
-const APP_VER=11;
+/* ===== 자동 저장 + 자동 가져오기 + 실시간 반영 =====
+   - 바꾸면 이 기기에 바로 저장하고, 2~3초 뒤 서버에 자동 저장해요.
+   - 단, 내가 마지막으로 받은 뒤 서버가 그대로일 때만 저장해요.
+   - 다른 기기가 저장하면 실시간(또는 30초 확인)으로 알아채고, 이 기기에 저장 안 한 변경이 없으면 자동으로 가져와요.
+   - 두 기기에서 동시에 고친 경우에만 어느 쪽을 남길지 물어봐요. 몰래 합치지 않아요. */
+let session=null,syncState='local',busy=false,forcePush=false,readOnly=false,saveTimer=null,conflict=false,rtChan=null,ui_newer=false;
+const APP_VER=12;
 const SRVKEY=KEY+'.srv',DIRTYKEY=KEY+'.dirty';
 const getSrv=()=>{try{const v=JSON.parse(localStorage.getItem(SRVKEY)||'null');if(v)return v;const b=JSON.parse(localStorage.getItem(KEY+'.base')||'null');return b&&b._updated?{stamp:b._updated}:null}catch(e){return null}};
 const setSrv=st=>{try{localStorage.setItem(SRVKEY,JSON.stringify({stamp:st,at:Date.now()}));localStorage.removeItem(KEY+'.base')}catch(e){}};
 const isDirty=()=>{try{const v=localStorage.getItem(DIRTYKEY);if(v!==null)return v==='1';const b=JSON.parse(localStorage.getItem(KEY+'.base')||'null');return !!(b&&state&&b._updated!==state._updated)}catch(e){return false}};
 const setDirty=v=>{try{localStorage.setItem(DIRTYKEY,v?'1':'0')}catch(e){}};
-const SYNC_TEXT={local:'이 기기에만 저장',out:'로그인 필요',ok:'서버와 같아요',dirty:'저장 안 된 변경 있음',newer:'다른 기기에 최신 내용 있음',saving:'저장 중…',loading:'가져오는 중…',err:'연결 오류',off:'오프라인'};
+const SYNC_TEXT={local:'이 기기에만 저장',out:'로그인 필요',ok:'자동 저장됨',dirty:'저장 대기 중',saving:'저장 중…',loading:'가져오는 중…',conflict:'다른 기기와 겹쳤어요',err:'연결 오류, 다시 시도해요',off:'오프라인, 연결되면 저장해요'};
 function setSync(s){syncState=s;const el=document.getElementById('syncLabel');if(el){el.textContent=SYNC_TEXT[s]||'';el.dataset.s=s}renderSyncBtns()}
 function renderSyncBtns(){
   const box=document.getElementById('syncBtns');if(!box)return;
   if(!sb||!session){box.innerHTML='';return}
-  const dirty=isDirty(),newer=syncState==='newer'||ui_newer;
-  box.innerHTML=`<button class="btn sm ${dirty?'':'ghost'}" data-act="upload"${busy||readOnly?' disabled':''}>서버에 저장</button><button class="btn sm ${newer&&!dirty?'':'ghost'}" data-act="download"${busy?' disabled':''}>최신 가져오기</button>`;
+  box.innerHTML=conflict?'<button class="btn sm" data-act="dlg" data-d="conflict">어느 쪽을 남길지 고르기</button>':`<button class="icon synbtn" data-act="syncnow" aria-label="지금 동기화" title="지금 동기화"${busy||readOnly?' disabled':''}>↻</button>`;
 }
-let ui_newer=false;
 function writeLocal(){try{localStorage.setItem(KEY,JSON.stringify(state))}catch(e){toast('이 기기 저장 공간이 부족해요. 관리 > 데이터에서 정리해 주세요')}}
-function save(){state._updated=Date.now();writeLocal();setDirty(true);if(sb&&session)setSync('dirty');else setSync(sb?'out':'local')}
-function staleBlock(){if(readOnly)return;readOnly=true;const bn=document.createElement('div');bn.className='stale';bn.innerHTML='새 버전이 나왔어요. 새로고침하면 최신 화면으로 바뀌어요. <button class="btn sm" onclick="location.reload()">새로고침</button>';document.body.appendChild(bn);renderSyncBtns()}
+function save(){state._updated=Date.now();writeLocal();setDirty(true);if(!(sb&&session)){setSync(sb?'out':'local');return}if(conflict){setSync('conflict');return}setSync('dirty');clearTimeout(saveTimer);saveTimer=setTimeout(autoSave,2500)}
+function staleBlock(){if(readOnly)return;readOnly=true;clearTimeout(saveTimer);const bn=document.createElement('div');bn.className='stale';bn.innerHTML='새 버전이 나왔어요. 새로고침하면 최신 화면으로 바뀌어요. <button class="btn sm" onclick="location.reload()">새로고침</button>';document.body.appendChild(bn);renderSyncBtns()}
 async function remoteMeta(){const {data,error}=await sb.from('workspace').select('stamp:data->_updated,ver:data->appVer').eq('user_id',session.user.id).maybeSingle();if(error)throw error;return {stamp:data?data.stamp:null,ver:data?(+data.ver||0):0}}
 async function fetchRemote(){const {data,error}=await sb.from('workspace').select('data').eq('user_id',session.user.id).maybeSingle();if(error)throw error;return data&&data.data}
-async function upload(){
-  if(!sb||!session||readOnly||busy)return;
+function openConflict(){if(conflict&&ui.dlg==='conflict')return;conflict=true;clearTimeout(saveTimer);setSync('conflict');openDlg('conflict')}
+/* 서버가 내가 아는 상태 그대로일 때만 저장해요 (force면 그냥 저장) */
+async function doUpload(force){
+  if(!sb||!session||readOnly)return false;
+  state.appVer=Math.max(state.appVer||0,APP_VER);
+  const snap=JSON.parse(JSON.stringify(state));snap._updated=Date.now();
+  const srv=getSrv(),row={data:snap,updated_at:new Date(snap._updated).toISOString()};
+  if(force||!srv){const {error}=await sb.from('workspace').upsert({user_id:session.user.id,...row});if(error)throw error}
+  else{const {data:rows,error}=await sb.from('workspace').update(row).eq('user_id',session.user.id).eq('data->>_updated',String(srv.stamp)).select('user_id');if(error)throw error;if(!rows||!rows.length)return false}
+  state._updated=snap._updated;state.appVer=snap.appVer;writeLocal();setSrv(snap._updated);setDirty(false);return true;
+}
+async function autoSave(){
+  if(!sb||!session||readOnly||conflict)return;
+  if(!navigator.onLine){setSync('off');return}
+  if(busy){clearTimeout(saveTimer);saveTimer=setTimeout(autoSave,1500);return}
+  if(!isDirty()){setSync('ok');return}
   busy=true;setSync('saving');
   try{
-    const m=await remoteMeta();
-    if(m.ver>APP_VER){staleBlock();return}
+    const m=await remoteMeta();if(m.ver>APP_VER){staleBlock();return}
     const srv=getSrv();
-    if(m.stamp!=null&&(!srv||String(m.stamp)!==String(srv.stamp))&&!confirm('다른 기기에서 더 최근에 저장한 내용이 있어요.\n이 기기 내용으로 덮어쓸까요?\n\n취소를 누르면 저장하지 않아요. "최신 가져오기"로 먼저 확인할 수 있어요.')){ui_newer=true;setSync('newer');return}
-    state._updated=Date.now();state.appVer=Math.max(state.appVer||0,APP_VER);
-    const snap=JSON.parse(JSON.stringify(state));
-    const {error}=await sb.from('workspace').upsert({user_id:session.user.id,data:snap,updated_at:new Date(snap._updated).toISOString()});
-    if(error)throw error;
-    writeLocal();setSrv(snap._updated);setDirty(false);ui_newer=false;forcePush=false;
-    setSync('ok');toast('서버에 저장했어요. 다른 기기에서는 "최신 가져오기"를 눌러주세요');
-  }catch(e){console.error(e);setSync('err');toast('저장하지 못했어요. 인터넷 연결을 확인해 주세요')}
+    if(m.stamp!=null&&srv&&String(m.stamp)!==String(srv.stamp)){busy=false;openConflict();return}
+    const ok=await doUpload(m.stamp==null);
+    if(!ok){busy=false;openConflict();return}
+    setSync('ok');
+  }catch(e){console.error(e);setSync('err');clearTimeout(saveTimer);saveTimer=setTimeout(autoSave,15000)}
   finally{busy=false;renderSyncBtns()}
 }
-async function download(skipConfirm){
-  if(!sb||!session||busy)return;
-  if(!skipConfirm&&isDirty()&&!confirm('이 기기에서 서버에 저장하지 않은 변경이 있어요.\n최신 내용을 가져오면 이 기기의 변경은 사라져요. 가져올까요?'))return;
-  busy=true;setSync('loading');
+async function download(silent){
+  if(!sb||!session)return;busy=true;setSync('loading');
   try{
     const r=await fetchRemote();
-    if(!r){toast('서버에 저장된 내용이 아직 없어요. "서버에 저장"을 먼저 눌러주세요');setSync(isDirty()?'dirty':'ok');return}
+    if(!r){setSync(isDirty()?'dirty':'ok');return}
     if((r.appVer||0)>APP_VER){staleBlock();return}
-    const before=JSON.stringify(r);state=migrate(r);writeLocal();setSrv(r._updated);
-    const changed=JSON.stringify(state)!==before;setDirty(changed);ui_newer=false;
-    render();setSync(changed?'dirty':'ok');if(!skipConfirm)toast('최신 내용을 가져왔어요');
-  }catch(e){console.error(e);setSync('err');toast('가져오지 못했어요. 인터넷 연결을 확인해 주세요')}
+    const keepView=ui.view;state=migrate(r);writeLocal();setSrv(r._updated);setDirty(false);
+    if(keepView!=='home'&&keepView!=='settings'&&!spaceOf(keepView))ui.view='home';
+    render();setSync('ok');if(silent==='toast')toast('다른 기기에서 바뀐 내용을 가져왔어요');
+  }catch(e){console.error(e);setSync('err')}
   finally{busy=false;renderSyncBtns()}
 }
-/* 확인만 해요. 아무것도 자동으로 바꾸지 않아요 */
+/* 서버 확인: 바뀌었고 이 기기에 저장 안 한 변경이 없으면 자동으로 가져와요 */
 async function pull(){
-  if(!sb||!session)return;if(!navigator.onLine){setSync('off');return}
-  if(busy)return;
+  if(!sb||!session||busy||conflict||readOnly)return;if(!navigator.onLine){setSync('off');return}
   let m;try{m=await remoteMeta()}catch(e){console.error(e);setSync('err');return}
   if(m.ver>APP_VER){staleBlock();return}
-  const srv=getSrv();
-  if(m.stamp==null){setDirty(true);setSync('dirty');return}
-  if(!srv){ /* 이 기기에서 처음 로그인: 서버 내용을 가져와요 */ await download(true);try{localStorage.setItem(KEY+'.linked',session.user.id)}catch(e){}return}
-  if(String(m.stamp)!==String(srv.stamp)){if(!ui_newer)toast('다른 기기에서 저장한 최신 내용이 있어요. "최신 가져오기"를 눌러주세요');ui_newer=true;setSync('newer')}
-  else{ui_newer=false;setSync(isDirty()?'dirty':'ok')}
+  const srv=getSrv(),dirty=isDirty();
+  if(m.stamp==null){setDirty(true);autoSave();return}
+  if(!srv){await download(false);try{localStorage.setItem(KEY+'.linked',session.user.id)}catch(e){}return}
+  if(String(m.stamp)===String(srv.stamp)){if(dirty)autoSave();else setSync('ok');return}
+  if(!dirty){await download('toast');return}
+  openConflict();
+}
+function startRealtime(){
+  if(!sb||!session||rtChan)return;
+  try{rtChan=sb.channel('ws-'+session.user.id).on('postgres_changes',{event:'*',schema:'public',table:'workspace',filter:'user_id=eq.'+session.user.id},()=>{setTimeout(pull,400)}).subscribe()}catch(e){console.error(e)}
 }
 async function initSync(){
   if(!sb){setSync('local');return}
   const {data}=await sb.auth.getSession();session=data.session;
-  sb.auth.onAuthStateChange((ev,s)=>{session=s;if(ev==='SIGNED_OUT')setSync('out')});
-  if(session)await pull();else{setSync('out');openDlg('login')}
+  sb.auth.onAuthStateChange((ev,s)=>{session=s;if(ev==='SIGNED_OUT'){setSync('out');if(rtChan){sb.removeChannel(rtChan);rtChan=null}}if(ev==='SIGNED_IN')startRealtime()});
+  if(session){await pull();startRealtime()}else{setSync('out');openDlg('login')}
 }
-document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')pull()});
-window.addEventListener('online',()=>pull());
-window.addEventListener('storage',e=>{if(e.key===KEY&&e.newValue){try{state=JSON.parse(e.newValue);render();setSync(isDirty()?'dirty':syncState)}catch(x){}}});
-window.addEventListener('beforeunload',e=>{if(sb&&session&&isDirty()){e.preventDefault();e.returnValue=''}});
-setInterval(()=>{if(document.visibilityState==='visible')pull()},60000);
-document.addEventListener('click',e=>{const el=e.target.closest&&e.target.closest('[data-act]');if(!el)return;if(el.dataset.act==='upload')upload();else if(el.dataset.act==='download')download(false)});
+document.addEventListener('visibilitychange',()=>{if(!sb||!session)return;if(document.visibilityState==='hidden'){if(isDirty()&&!conflict){clearTimeout(saveTimer);autoSave()}}else pull()});
+window.addEventListener('online',()=>{if(isDirty())autoSave();else pull()});
+window.addEventListener('storage',e=>{if(e.key===KEY&&e.newValue){try{state=JSON.parse(e.newValue);render()}catch(x){}}});
+window.addEventListener('beforeunload',e=>{if(sb&&session&&isDirty()&&!readOnly){autoSave();e.preventDefault();e.returnValue=''}});
+setInterval(()=>{if(document.visibilityState==='visible')pull()},30000);
+async function resolveConflict(keepMine){
+  dlg.close();conflict=false;busy=true;setSync(keepMine?'saving':'loading');
+  try{
+    if(keepMine){await doUpload(true);setSync('ok');toast('이 기기 내용으로 저장했어요')}
+    else{busy=false;await download(false);toast('다른 기기 내용을 가져왔어요')}
+  }catch(e){console.error(e);setSync('err')}
+  finally{busy=false;renderSyncBtns()}
+}
+document.addEventListener('click',e=>{const el=e.target.closest&&e.target.closest('[data-act]');if(!el)return;const a=el.dataset.act;
+  if(a==='syncnow'){if(isDirty())autoSave();else pull()}
+  else if(a==='keepmine'){if(confirm('다른 기기에서 바꾼 내용은 사라져요. 이 기기 내용으로 저장할까요?'))resolveConflict(true)}
+  else if(a==='takeremote'){if(confirm('이 기기에서 바꾼 내용은 사라져요. 다른 기기 내용을 가져올까요?'))resolveConflict(false)}
+  else if(a==='conflictlater'){dlg.close();setSync('conflict')}
+});
 function loginMsg(m){const el=document.getElementById('loginMsg');if(el)el.textContent=m}
 let state=load();
 const ui={view:'home',day:TODAY,week:monday(TODAY),edit:false,chap:null,dlg:null};
@@ -1034,6 +1063,9 @@ function renderDlg(){
     <button class="btn" type="submit">저장</button></form>`}
   }else if(ui.dlg==='archive'){
     h=`<div class="dlg-head"><h2>보관함</h2><button class="icon" data-act="closedlg" aria-label="닫기">×</button></div><p class="small" style="margin:0 0 10px">90일이 지난 완료한 일과 메일 원문이 달별로 모여 있어요.</p>${archiveDlg()}`;
+  }else if(ui.dlg==='conflict'){
+    h=`<div class="dlg-head"><h2>다른 기기에서도 바뀌었어요</h2></div><p style="margin:0 0 10px;line-height:1.6">이 기기와 다른 기기에서 서로 모르는 채로 내용을 고쳤어요. 어느 쪽을 남길지 골라주세요. 고르기 전까지 자동 저장은 잠시 멈춰요.</p><p class="small" style="margin:0 0 14px">평소엔 한 기기에서 저장하면 다른 기기에 바로 반영돼서, 이 창은 거의 뜨지 않아요.</p>
+    <div style="display:flex;flex-direction:column;gap:8px"><button class="btn" data-act="takeremote">다른 기기 내용 가져오기</button><button class="btn ghost" data-act="keepmine">이 기기 내용으로 저장</button><button class="link" data-act="conflictlater" style="align-self:center;margin-top:4px">나중에 고르기</button></div>`;
   }else if(ui.dlg==='search'){
     h=`<div class="sinput">${ICON.search}<input id="sq" type="text" enterkeyhint="search" placeholder="검색어를 입력하세요" value="${esc(ui.sq)}" autocomplete="off" aria-label="검색"><button class="icon" data-act="closedlg" aria-label="닫기">×</button></div><div class="sfilters" id="sfilters"></div><div class="sbody" id="sresults"></div><div class="sfoot"><span>↑↓ 이동</span><span>enter 열기</span><span>esc 닫기</span></div>`;
   }else if(ui.dlg==='login'){
@@ -1536,7 +1568,7 @@ document.addEventListener('click',e=>{
     case 'delchap':if(!confirm('이 챕터를 삭제할까요? 중간 목표는 그대로예요.'))return;state.chapters=state.chapters.filter(c=>c.id!==id);break;
     case 'export':{const blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'});const l=document.createElement('a');l.href=URL.createObjectURL(blob);l.download='작업공간-백업-'+TODAY+'.json';document.body.appendChild(l);l.click();setTimeout(()=>{URL.revokeObjectURL(l.href);l.remove()},500);toast('백업 파일을 내보냈어요');return}
     case 'import':document.getElementById('importFile').click();return;
-    case 'reset':if(!confirm('모든 내용을 지우고 예시 상태로 되돌릴까요? "서버에 저장"을 누르기 전까지는 이 기기에만 적용돼요.'))return;state=migrate(seed());forcePush=true;ui.view='home';break;
+    case 'reset':if(!confirm('모든 내용을 지우고 예시 상태로 되돌릴까요? 자동 저장되어 다른 기기에도 반영돼요.'))return;state=migrate(seed());forcePush=true;ui.view='home';break;
     default:return;
   }
   save();render();
