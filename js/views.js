@@ -50,11 +50,24 @@ async function getDay() {
   let d = null;
   if (App.db) { const s = await App.db.doc(path).get().catch(() => null); if (s?.exists) d = JSON.parse(JSON.stringify(s.data())); }
   if (!d) { d = buildDay(); if (App.db) mergeWrite(path, cur => cur || d).then(m => { if (m && m.sec && App.dayDoc === d && !Object.values(d.sec).some(x => x.done)) App.dayDoc = m; }).catch(() => {}); }
+  // 오늘 세트를 만든 뒤에 한자 묶음·문법 비교가 생겼으면 오늘 세트에 더해요
+  if (d.sec && (!d.sec.kanji || !d.sec.gram)) {
+    const add = {};
+    if (!d.sec.kanji) add.kanji = d.sec.kanji = Object.assign({ done: false }, pickDailyGroup('k') || { gid: null });
+    if (!d.sec.gram) add.gram = d.sec.gram = Object.assign({ done: false }, pickDailyGroup('g') || { gid: null });
+    if (App.db) mergeWrite(path, cur => { if (!cur?.sec) return null; for (const [k, v] of Object.entries(add)) if (!cur.sec[k]) cur.sec[k] = v; return cur; }).catch(() => {});
+  }
   App.dayDoc = d; return d;
 }
 function buildDay() {
   const due = dueCount();
-  let review = dueItems(due > 12 ? Math.min(25, due) : 12); // 밀리면 최대 25개까지 늘려요
+  // 복습할 때가 된 것 (최대 12개) + 이번에 외울 단어 (작업 묶음)에서 골고루 → 합쳐서 20개 안팎
+  const ws = maintainWS();
+  let review = dueItems(Math.min(12, due));
+  review = review.concat(balancedPick(ws.filter(id => !review.includes(id)), Math.max(8, 20 - review.length)));
+  // 수업에서 배운 문법은 3일 뒤·1주 뒤에 다시 나와요
+  const back = App.lessons.filter(L => L.date && [3, 7].includes(daysBetween(L.date, App.today))).flatMap(L => L.grammarIds || []);
+  review = [...new Set(back.slice(0, 4).concat(review))];
   if (review.length < 8) {
     const extra = balancedPick(allVocab().filter(v => ['a', 'l'].includes(status(v.id)) && !review.includes(v.id)).map(v => v.id), 10 - review.length);
     review = review.concat(extra);
@@ -64,15 +77,15 @@ function buildDay() {
   const unseen = q => !q.seen;
   let lessonQ = last ? bankQuestions((q, b) => b.source === last.id && q.area !== 'l' && unseen(q)) : [];
   if (lessonQ.length < 6) lessonQ = lessonQ.concat(bankQuestions(q => q.area !== 'l' && unseen(q) && !lessonQ.find(x => x.id === q.id)));
-  const listen = shuffle(bankQuestions(q => q.area === 'l' && unseen(q))).slice(0, 2);
-  const drill = shuffle(App.drill.filter(d => (d.ok || 0) < 2)).slice(0, 3).map(d => d.id);
+  const drill = shuffle(App.drill.filter(d => (d.ok || 0) < 2 && !d.del)).slice(0, 3).map(d => d.id);
   return {
     date: App.today, round: 1, due,
     sec: {
       review: { ids: review, done: false },
       lesson: { refs: lessonQ.slice(0, 6).map(q => ({ bank: q.bank, id: q.id })), lessonIds: last ? (last.grammarIds || []).concat(last.vocabIds || []).slice(0, 12) : [], done: false },
+      kanji: Object.assign({ done: false }, pickDailyGroup('k') || { gid: null }),
+      gram: Object.assign({ done: false }, pickDailyGroup('g') || { gid: null }),
       drill: { ids: drill, done: false },
-      listen: { refs: listen.map(q => ({ bank: q.bank, id: q.id })), done: false },
     },
   };
 }
@@ -129,7 +142,7 @@ async function renderToday(v) {
   g3.append(card(`N${targetLevel()} 항목 학습 상태`, `전체 ${st.total}개`,
     h('div', { class: 'stack' }, seg('m', 'var(--ok)'), seg('l', 'var(--amber)'), seg('a', 'var(--blue)'), seg('n', 'var(--empty)')),
     h('div', { class: 'legend' }, [['m', '익힘', 'var(--ok)'], ['l', '학습 중', 'var(--amber)'], ['a', '학원에서 배움', 'var(--blue)'], ['n', '미학습', 'var(--empty)']].map(([k, n, c]) => h('div', {}, h('i', { style: `background:${c}` }), n, h('b', {}, st[k])))),
-    h('p', { class: 'muted sm' }, '서로 다른 날 3번 연속, 또는 4번 연속 맞히면 "익힘"으로 바뀌어요')));
+    h('p', { class: 'muted sm' }, '서로 다른 시험(2시간 이상 간격)에서 3번 연속 맞히면 "익힘"이 돼요. 익힘 뒤에도 3·7·15·30일 뒤 확인 문제가 나와요')));
   // quick memo
   const ta = h('textarea', { placeholder: '모르는 단어나 말 못 한 문장을 바로 적어두세요', rows: 3 });
   const recent = App.memos.slice(0, 2);
@@ -141,14 +154,16 @@ async function renderToday(v) {
   const day = await getDay();
   setCard.innerHTML = '';
   const sec = day.sec;
-  const doneCount = Object.values(sec).filter(s => s.done).length;
-  setCard.append(h('h2', {}, '오늘의 세트' + ((day.round || 1) > 1 ? ` · ${day.round}회차` : ''), h('span', {}, `${doneCount} / 4 완료`)));
+  const kgG = sec.kanji?.gid && findGroup('k', sec.kanji.gid), ggG = sec.gram?.gid && findGroup('g', sec.gram.gid);
   const rows = [
-    ['review', `복습 단어 ${sec.review.ids.length}개`, (day.due || 0) > sec.review.ids.length && (day.round || 1) === 1 ? `밀린 복습 ${day.due}개 중 오래된 것부터` : '복습일이 된 단어·최근 틀린 항목', 'c-green', '복습', Math.max(4, sec.review.ids.length * 0.6 | 0)],
+    ['review', `복습 단어 ${sec.review.ids.length}개`, `이번에 외울 단어 ${WS_SIZE}개 중심` + ((day.due || 0) ? ` + 복습할 때 된 것 (${day.due}개 중 오래된 것부터)` : ''), 'c-green', '복습', Math.max(4, sec.review.ids.length * 0.6 | 0)],
     ['lesson', (sec.lesson.refs.length || sec.lesson.lessonIds.length) ? `수업 문항 ${sec.lesson.refs.length || Math.min(6, sec.lesson.lessonIds.length)}개` : '수업 문항', App.lessons[0] ? (App.lessons[0].unit || '') + ' · ' + (App.lessons[0].note?.title || '') : '수업 기록 후 생성돼요', 'c-blue', '학원', 7],
+    sec.kanji && kgG ? ['kanji', `한자 묶음 · ${kgG.title}`, (sec.kanji.fresh ? '새 묶음' : '복습 묶음') + ` ${kgG.ids.map(id => App.byId[id]?.c).join('')}` + (sec.kanji.rev?.length ? ` + 복습 ${sec.kanji.rev.length}묶음` : ''), 'c-red', '한자', 8] : null,
+    sec.gram && ggG ? ['gram', `문법 비교 · ${ggG.title}`, '비슷한 문법을 나란히 보고 골라 보기', 'c-blue', '문법', 6] : null,
     ['drill', `순간 작문 ${sec.drill.ids.length || 3}문장`, '한국어 → 일본어로 바로 말하기', 'c-amber', '회화', 6],
-    ['listen', `청해 ${sec.listen.refs.length || 2}문항`, '음성 듣고 풀기', 'c-red', '청해', 5],
-  ];
+  ].filter(Boolean);
+  const doneCount = rows.filter(r => sec[r[0]]?.done).length;
+  setCard.append(h('h2', {}, '오늘의 세트' + ((day.round || 1) > 1 ? ` · ${day.round}회차` : ''), h('span', {}, `${doneCount} / ${rows.length} 완료`)));
   let firstOpen = null;
   rows.forEach(([key, title, desc, cls, tag, min], idx) => {
     const s = sec[key];
@@ -158,20 +173,25 @@ async function renderToday(v) {
       h('div', { class: 't' }, h('b', {}, title), h('p', {}, desc)),
       h('span', { class: 'chip ' + (s.done ? 'c-green' : cls) }, s.done ? '완료' : tag), h('div', { class: 'min' }, min + '분')));
   });
-  setCard.append(h('div', { class: 'setfoot' }, h('p', {}, firstOpen ? '순서대로 하면 약 25분이에요' : '오늘 세트를 모두 마쳤어요!'),
+  setCard.append(h('div', { class: 'setfoot' }, h('p', {}, firstOpen ? `순서대로 하면 약 ${rows.reduce((a, r) => a + (sec[r[0]].done ? 0 : r[5]), 0)}분이에요` : '오늘 세트를 모두 마쳤어요!'),
     firstOpen ? h('button', { class: 'btn', onclick: () => startSection(firstOpen) }, doneCount ? '이어서 시작 →' : '세트 시작 →') : h('div', { class: 'row tight gap' }, h('button', { class: 'btn ghost', onclick: () => nav('test') }, '시험 탭'), h('button', { class: 'btn', onclick: e => newRound(e.currentTarget) }, '새 세트 받기 →'))));
 }
 /* 세트를 다 풀면 같은 날에도 새 세트를 하나 더 받아요 (정답률·진도는 푼 만큼 그대로 쌓여요) */
+/* 오늘 세트에서 화면에 보이는 파트 (청해는 따로 풀기로 해서 빼요) */
+const SET_ORDER = ['review', 'lesson', 'kanji', 'gram', 'drill'];
+function setKeys(sec) { return SET_ORDER.filter(k => sec[k] && !((k === 'kanji' && !(sec.kanji.gid && findGroup('k', sec.kanji.gid))) || (k === 'gram' && !(sec.gram.gid && findGroup('g', sec.gram.gid))))); }
 async function newRound(btn) {
   btn.disabled = true;
   const cur = await getDay();
   const nd = buildDay(); nd.round = (cur.round || 1) + 1;
   const m = await mergeWrite('day/' + App.today, c => {
     if (c?.sec && (c.round || 1) >= nd.round) return null; // 다른 기기에서 이미 받았으면 그걸 써요
-    if (c?.sec && Object.values(c.sec).some(x => !x.done)) return null;
+    // 화면에 보이는 파트만 확인해요 (예전 세트에 남아 있는 청해 파트는 빼고)
+    if (c?.sec && setKeys(c.sec).some(k => !c.sec[k].done)) return null;
     return nd;
   }).catch(() => null);
   App.dayDoc = null; if (m) App.dayDoc = m;
+  if (m) toast(`${nd.round}회차 세트를 만들었어요.`); else toast('새 세트를 만들지 못했어요. 다시 눌러 주세요.', 'err');
   nav('today');
 }
 
@@ -183,6 +203,8 @@ function overlay(title) {
 async function startSection(key) {
   const day = await getDay(); const s = day.sec[key];
   const finish = () => markSectionDone(day.date, key, s, day.round || 1);
+  if (key === 'kanji') { if (!s.gid) return toast('오늘 할 한자 묶음이 없어요.'); studyKanjiGroup(s.gid, { rev: s.rev, onFinish: finish, onDone: () => nav('today'), onExit: () => nav('today'), doneText: '오늘 화면으로' }); return; }
+  if (key === 'gram') { if (!s.gid) return toast('오늘 할 문법 비교가 없어요.'); studyGrammarGroup(s.gid, { onFinish: finish, onDone: () => nav('today'), onExit: () => nav('today'), doneText: '오늘 화면으로' }); return; }
   if (key === 'drill') { const o = overlay('순간 작문'); drillRunner(o.body, s.ids.length ? s.ids : null, () => { finish(); o.close(); nav('today'); }, () => { o.close(); nav('today'); }); return; }
   let qs = [];
   if (key === 'review') qs = s.ids.map(id => ruleQ(id));
@@ -541,7 +563,7 @@ function renderTest(v, sub) {
   const wrongN = App.wrong.length;
   v.append(pageHead('시험', '실제 JLPT 문제 유형으로 출제돼요', h('button', { class: 'btn ghost', onclick: () => startMode('wrong') }, `오답 다시 풀기 · ${Math.min(wrongN, 20)}문항`)));
   const cols = h('div', { class: 'cols-test' }); v.append(cols);
-  const modes = [['daily', '데일리', '오늘 세트로 이동', 'c-gray', '오늘'], ['unit', '단원 테스트', '수업 기록 기반 · 응용 문법 포함', 'c-blue', App.lessons[0]?.unit || '수업'], ['mock', `N${targetLevel()} 진단 모의고사`, '실전 구성 · 영역별 점수 · 40문항', 'c-red', '추천'], ['area', '영역 집중', '약한 영역만 골라 20문항', 'c-gray', '선택'], ['wrong', '오답 재시험', '틀린 문항 다시 · AI 변형 문제', 'c-amber', String(wrongN)]];
+  const modes = [['daily', '데일리', '오늘 세트로 이동', 'c-gray', '오늘'], ['unit', '단원 테스트', '수업 기록 기반 · 응용 문법 포함', 'c-blue', App.lessons[0]?.unit || '수업'], ['mock', `N${targetLevel()} 진단 모의고사`, '실전 구성 · 영역별 점수 · 40문항', 'c-red', '추천'], ['listen', '🎧 청해 연습', '유형별 청해 · 5/10문항 · 내 실력에 반영', 'c-red', '청해'], ['area', '영역 집중', '약한 영역만 골라 20문항', 'c-gray', '선택'], ['wrong', '오답 재시험', '틀린 문항 다시 · AI 변형 문제', 'c-amber', String(wrongN)]];
   const side = h('section', {}, modes.map(([k, t, d, c, chip]) => h('button', { class: 'mode' + (k === sub ? ' on' : ''), onclick: () => k === 'daily' ? nav('today') : startMode(k) }, h('b', {}, t, h('span', { class: 'chip ' + c }, chip)), h('p', {}, d))));
   const main = h('section', { class: 'card qcard' }); const info = h('section', { class: 'card' });
   cols.append(side, main, info);
@@ -563,6 +585,7 @@ function renderTest(v, sub) {
     if (k === 'unit') { main.append(h('div', { class: 'muted' }, '불러오는 중…')); return loadArchive().then(() => { main.innerHTML = ''; unitPicker(main); }); }
     if (k === 'mock') return mockIntro(main);
     if (k === 'area') return areaPicker(main);
+    if (k === 'listen') return listenPicker(main);
     if (k === 'wrong') { main.append(h('div', { class: 'muted' }, '불러오는 중…')); return loadArchive().then(() => { main.innerHTML = ''; wrongMode(main); }); }
   }
   function unitPicker(el) {
@@ -574,6 +597,24 @@ function renderTest(v, sub) {
         h('b', {}, L.unit + ' · ', h('span', { lang: 'ja' }, L.note?.title || '')), h('span', { class: 'muted' }, `${L.date} · 문제 ${n}개`)));
     }
   }
+  function listenPicker(el) {
+    const all = bankQuestions(q => q.area === 'l'), unseen = all.filter(q => !q.seen);
+    const [o, t] = areaAccuracy(14).l;
+    el.append(h('h2', {}, '🎧 청해 연습'),
+      h('p', { class: 'muted' }, `청해 문제 ${all.length}개 · 안 푼 문제 ${unseen.length}개 · 최근 2주 정답률 ${t ? Math.round(o / t * 100) + '%' : '기록 없음'}`),
+      h('p', { class: 'muted sm' }, '음성을 듣고 푸는 문제예요. 스크립트는 답을 고른 뒤에 볼 수 있어요. 결과는 내 실력의 청해 정답률에 들어가요.'));
+    const start = n => {
+      const qs = shuffle(unseen).concat(shuffle(all.filter(q => q.seen)).sort((a, b) => (a.seen || 0) - (b.seen || 0))).slice(0, n);
+      if (qs.length < n && App.sample) {
+        if (!qs.length) return offerGenerate('l', () => nav('test', 'listen'));
+        toast(`청해 문제가 ${qs.length}개뿐이라 그만큼만 풀어요. 끝나고 "청해 문제 더 만들기"를 눌러 주세요.`);
+      }
+      if (!qs.length) { toast('청해 문제가 없어요.'); return; }
+      runQuiz(el, qs, { onDone: () => nav('test', 'listen') });
+    };
+    el.append(h('div', { class: 'row tight gap' }, h('button', { class: 'btn', onclick: () => start(5) }, '5문항'), h('button', { class: 'btn ghost', onclick: () => start(10) }, '10문항')),
+      ...(App.sample ? [h('div', { style: 'margin-top:12px' }, h('button', { class: 'btn ghost sm', onclick: () => offerGenerate('l', () => nav('test', 'listen')) }, '청해 문제 더 만들기 (6문항)'))] : []));
+  }
   function areaPicker(el) {
     el.append(h('h2', {}, '영역 집중'), h('p', { class: 'muted' }, '집중할 영역을 고르세요.'));
     const acc = areaAccuracy(14);
@@ -583,7 +624,7 @@ function renderTest(v, sub) {
     }
     function runArea(a) {
       let qs;
-      if (a === 'v') { const ids = balancedPick(allVocab().filter(v => v.l >= targetLevel() - 0 && v.l <= 5 && ['a', 'l', 'm'].includes(status(v.id))).map(v => v.id), 14).concat(shuffle(App.M.kanji.filter(k => k.l === targetLevel())).slice(0, 2).map(k => k.id)); qs = ids.map(id => ruleQ(id)).concat(shuffle(bankQuestions(q => q.area === 'v')).slice(0, 4)); }
+      if (a === 'v') { const ws = maintainWS(), due = dueItems(40).filter(id => App.byId[id]?.t === 'v' && !ws.includes(id)).slice(0, 4); const ids = balancedPick(ws, 10).concat(due, balancedPick(allVocab().filter(v => v.l >= targetLevel() && v.l <= 5 && ['a', 'l', 'm'].includes(status(v.id)) && !ws.includes(v.id) && !due.includes(v.id)).map(v => v.id), 14 - Math.min(10, ws.length) - due.length)).concat(shuffle(App.M.kanji.filter(k => k.l === targetLevel())).slice(0, 2).map(k => k.id)); qs = ids.map(id => ruleQ(id)).concat(shuffle(bankQuestions(q => q.area === 'v')).slice(0, 4)); }
       else qs = shuffle(bankQuestions(q => q.area === a)).sort((x, y) => (x.seen || 0) - (y.seen || 0)).slice(0, 20);
       if (!qs.length) return offerGenerate(a === 'l' ? 'l' : 'mix', () => nav('test', 'area'));
       runQuiz(el, shuffle(qs), { onDone: () => nav('test', 'area') });
@@ -659,12 +700,78 @@ function renderTalk(v, sub = 'drill') {
   } }, 'AI로 5문장 추가') : null;
   listCard.querySelector('h2').append(gen || '');
   const fromLabel = { lesson: '수업', memo: '모임', ai: 'AI', role: '롤플레이' };
-  for (const d of [...App.drill].reverse().slice(0, 60)) listCard.append(h('div', { class: 'drow' }, h('div', {}, h('div', {}, d.ko), h('small', { lang: 'ja', class: 'muted' }, d.jp)), h('span', { class: 'chip ' + ((d.ok || 0) >= 2 ? 'c-green' : 'c-gray') }, (d.ok || 0) >= 2 ? '익힘' : fromLabel[d.from] || '')));
+  listCard.querySelector('h2').append(h('button', { class: 'btn ghost sm', title: '내 문장과 수업 예문의 오타를 AI로 찾아 고쳐요', onclick: () => typoCheck() }, '🔍 오타 검사'));
+  listCard.append(h('p', { class: 'muted sm' }, '문장을 누르면 고치거나 지울 수 있어요.'));
+  for (const d of [...App.drill].filter(d => !d.del).reverse().slice(0, 80)) listCard.append(h('div', { class: 'drow click', onclick: () => editDrill(d, () => nav('talk', 'drill')) }, h('div', {}, h('div', {}, d.ko), h('small', { lang: 'ja', class: 'muted' }, d.jp)), h('span', { class: 'chip ' + ((d.ok || 0) >= 2 ? 'c-green' : 'c-gray') }, (d.ok || 0) >= 2 ? '익힘' : fromLabel[d.from] || '')));
   if (!App.drill.length) listCard.append(h('div', { class: 'muted' }, '수업을 기록하거나 모임 메모를 저장하면 문장이 쌓여요.'));
   wrap.append(listCard);
 }
+/* 작문 문장 고치기·지우기 (지운 문장은 목록과 연습에서 빠져요) */
+function editDrill(d, after) {
+  const ko = h('textarea', { rows: 2 }, d.ko || ''), jpIn = h('textarea', { rows: 2, lang: 'ja' }, d.jp || '');
+  const m = modal(h('div', { class: 'editdrill' }, h('h2', {}, '작문 문장 고치기'),
+    h('label', { class: 'muted sm' }, '한국어 문장'), ko, h('label', { class: 'muted sm' }, '일본어 모범 답안'), jpIn,
+    h('div', { class: 'row' }, h('button', { class: 'btn ghost sm', onclick: () => { if (!confirmBox('이 문장을 지울까요?')) return; d.del = true; markDirty('drill'); flushSaves(); m.close(); toast('지웠어요.'); after && after(); } }, '🗑 지우기'),
+      h('div', { class: 'row tight gap' }, h('button', { class: 'btn ghost', onclick: () => m.close() }, '취소'), h('button', { class: 'btn', onclick: () => {
+        const k = ko.value.trim(), j = jpIn.value.trim(); if (!k || !j) { toast('두 칸 모두 채워 주세요.'); return; }
+        d.ko = k; d.jp = j; markDirty('drill'); flushSaves(); m.close(); toast('고쳤어요.'); after && after();
+      } }, '저장')))));
+}
+const confirmBox = msg => { try { return window.confirm(msg); } catch { return true; } };
+
+/* 오타 검사: 내 작문 문장·수업 예문을 AI가 훑어 오타만 골라 주면, 확인하고 반영해요 */
+async function typoCheck() {
+  if (!App.sample) { toast('AI 연결이 필요해요.', 'err'); return; }
+  const items = [];
+  for (const d of App.drill) if (!d.del) items.push({ kind: 'drill', ref: d, ko: d.ko || '', jp: d.jp || '' });
+  for (const L of App.lessons) (L.examples || []).forEach((e, i) => items.push({ kind: 'lesson', ref: L, idx: i, ko: e.k || '', jp: e.j || '' }));
+  if (!items.length) { toast('검사할 문장이 없어요.'); return; }
+  const o = overlay('오타 검사');
+  const status = h('p', { class: 'muted' }, `문장 ${items.length}개를 검사하는 중… (1~2분)`);
+  o.body.append(status);
+  const fixes = [];
+  try {
+    for (let b = 0; b < items.length; b += 40) {
+      const chunk = items.slice(b, b + 40);
+      const list = chunk.map((x, i) => `${i}\t${x.ko}\t${x.jp}`).join('\n');
+      const out = await aiJSON(`아래는 일본어 학습용 문장 목록이에요 (번호, 한국어, 일본어). 오타·맞춤법 오류·변환 실수(예: 살이 뻡니다 → 살이 찝니다, 誤字)만 찾아 고쳐 주세요.
+뜻·표현·문체는 바꾸지 말고, 확실한 오류만 고치세요. 오류가 없으면 빈 배열.
+JSON 배열만: [{"i":번호,"ko":"고친 한국어(바뀐 경우만)","jp":"고친 일본어(바뀐 경우만)","why":"짧은 이유"}]
+${list}`, { modelTier: 'quick' });
+      for (const f of Array.isArray(out) ? out : []) {
+        const x = chunk[+f.i]; if (!x) continue;
+        const nko = f.ko && f.ko !== x.ko ? String(f.ko) : null, njp = f.jp && f.jp !== x.jp ? String(f.jp) : null;
+        if (nko || njp) fixes.push({ x, nko, njp, why: String(f.why || '') });
+      }
+      status.textContent = `검사 중… ${Math.min(b + 40, items.length)} / ${items.length}`;
+    }
+  } catch (e) { status.textContent = aiErrorText(e); if (!fixes.length) return; }
+  o.body.innerHTML = '';
+  if (!fixes.length) { o.body.append(h('div', { class: 'empty' }, `문장 ${items.length}개를 검사했는데 고칠 곳이 없어요.`), h('div', { class: 'row end' }, h('button', { class: 'btn', onclick: o.close }, '닫기'))); return; }
+  const rows = fixes.map(f => { const cb = h('input', { type: 'checkbox', checked: true }); return { f, cb, el: h('label', { class: 'typo' }, cb, h('div', {},
+    f.nko ? h('div', {}, h('s', { class: 'muted' }, f.x.ko), ' → ', h('b', {}, f.nko)) : h('div', { class: 'muted' }, f.x.ko),
+    f.njp ? h('div', { lang: 'ja' }, h('s', { class: 'muted' }, f.x.jp), ' → ', h('b', {}, f.njp)) : null,
+    h('small', { class: 'muted' }, (f.x.kind === 'lesson' ? `수업 예문 (${f.x.ref.unit || ''})` : '작문 문장') + (f.why ? ' · ' + f.why : '')))) }; });
+  o.body.append(h('p', {}, `고칠 곳 ${fixes.length}개를 찾았어요. 맞는 것만 체크해 두고 반영하세요.`), ...rows.map(r => r.el),
+    h('div', { class: 'row end' }, h('button', { class: 'btn ghost', onclick: o.close }, '닫기'), h('button', { class: 'btn', onclick: async e => {
+      const done = busy(e.currentTarget, '반영 중…');
+      const byLesson = {};
+      for (const { f, cb } of rows) {
+        if (!cb.checked) continue;
+        if (f.x.kind === 'drill') { if (f.nko) f.x.ref.ko = f.nko; if (f.njp) f.x.ref.jp = f.njp; markDirty('drill'); }
+        else { const L = f.x.ref, ex = L.examples[f.x.idx]; if (f.nko) ex.k = f.nko; if (f.njp) ex.j = f.njp; (byLesson[L.id] = byLesson[L.id] || []).push(f.x.idx); }
+      }
+      try {
+        for (const [lid, idxs] of Object.entries(byLesson)) {
+          const L = App.lessons.find(x => x.id === lid);
+          await mergeWrite('lessons/' + lid, cur => { if (!cur?.examples) return null; for (const i of idxs) if (cur.examples[i]) cur.examples[i] = L.examples[i]; return cur; });
+        }
+        await flushSaves(); toast('반영했어요.'); o.close(); nav(App.tab, App.sub);
+      } catch (err) { toast('저장하지 못했어요. 다시 시도해 주세요.', 'err'); done(); }
+    } }, '체크한 것 반영')));
+}
 function drillRunner(root, ids, onDone, onExit) {
-  let list = ids ? ids.map(id => App.drill.find(d => d.id === id)).filter(Boolean) : shuffle(App.drill.filter(d => (d.ok || 0) < 2)).slice(0, 5);
+  let list = ids ? ids.map(id => App.drill.find(d => d.id === id)).filter(d => d && !d.del) : shuffle(App.drill.filter(d => (d.ok || 0) < 2 && !d.del)).slice(0, 5);
   root.innerHTML = '';
   if (!list.length) { root.append(h('div', { class: 'empty' }, '연습할 작문 문장이 없어요.', h('br'), h('span', { class: 'muted' }, '수업을 기록하거나 "AI로 5문장 추가"를 눌러 주세요.')), onExit ? h('div', { class: 'row end' }, h('button', { class: 'btn', onclick: onDone }, '완료로 표시')) : null); return; }
   let i = 0;
@@ -675,7 +782,8 @@ function drillRunner(root, ids, onDone, onExit) {
     const inp = h('textarea', { rows: 2, lang: 'ja', placeholder: '일본어로 써 보세요 (말로 해 본 뒤 써도 좋아요)' });
     const out = h('div');
     const chk = h('button', { class: 'btn', onclick: () => check() }, '확인');
-    root.append(h('div', { class: 'drillko' }, d.ko), inp, h('div', { class: 'row end' }, h('button', { class: 'btn ghost', onclick: () => reveal(null) }, '모르겠어요'), chk), out);
+    const koEl = h('div', { class: 'drillko' }, d.ko);
+    root.append(koEl, h('button', { class: 'linkbtn sm', onclick: () => editDrill(d, () => { koEl.textContent = d.ko; }) }, '✏️ 문장 고치기'), inp, h('div', { class: 'row end' }, h('button', { class: 'btn ghost', onclick: () => reveal(null) }, '모르겠어요'), chk), out);
     setTimeout(() => inp.focus(), 50);
     async function check() {
       const a = inp.value.trim(); if (!a) { reveal(null); return; }
@@ -790,7 +898,8 @@ function renderRole(v) {
     if (conv[conv.length - 1].role !== 'user') conv.push({ role: 'user', content: '(계속)' });
     waiting = true;
     try {
-      const r = await aiJSON(conv, { modelTier: 'quick', cache: false });
+      // 맡겨 두기 방식: 화면이 잠깐 꺼지거나 연결이 끊겨도 서버가 답을 저장해 두고, 다시 확인해서 받아요
+      const r = await aiJSON(conv, { modelTier: 'quick', cache: false, async: true, kind: 'role' });
       if (text && r.fix && r.fix.right) {
         const last = myTurns[myTurns.length - 1]; last.fix = { right: String(r.fix.right), why: String(r.fix.why || ''), wrong: String(r.fix.wrong || '') };
         App.drill.push({ id: uid('d'), ko: String(r.fix.ko || r.fix.why || ''), jp: String(r.fix.right), from: 'role', at: App.today, ok: 0, ng: 0 }); markDirty('drill');
@@ -802,7 +911,15 @@ function renderRole(v) {
       if (my !== session) return;
       drawChat();
       if (r.end) toast('장면이 끝났어요. 수고했어요!');
-    } catch (e) { if (my === session) { thinking.remove(); toast(aiErrorText(e), 'err'); } }
+    } catch (e) {
+      if (my === session) {
+        // 실패하면 내 말은 그대로 두고 "다시 받기" 버튼을 보여줘요 (다시 입력할 필요 없게)
+        thinking.innerHTML = '';
+        thinking.append(h('div', { class: 'bub retry' }, h('div', { class: 'muted sm' }, aiErrorText(e)),
+          h('button', { class: 'btn sm', onclick: () => { thinking.remove(); waiting = false; send(''); } }, '↻ 다시 받기')));
+        msgs.scrollTop = msgs.scrollHeight;
+      }
+    }
     finally { if (my === session) waiting = false; }
   }
 }
@@ -842,13 +959,29 @@ function renderStats(v) {
   }
   const row = h('div', { class: 'grid2 r2' }); v.append(row);
   row.append(card('주간 정답률', '최근 4주 · 영역별', weeklyChart()));
+  // 청해 · 이번에 외울 단어
+  {
+    const from = addDays(App.today, -13), bySub = {}; let lo = 0, ln = 0;
+    for (const m of Object.values(App.logs)) for (const [d, arr] of Object.entries(m)) if (d >= from) for (const r of arr) if (r[0] === 'l') { ln++; lo += r[1]; const k = (r[3] || '기타').replace(/^聴解\s*/, ''); const a = bySub[k] = bySub[k] || [0, 0]; a[0] += r[1]; a[1]++; }
+    const lc = card('🎧 청해', '최근 2주', ln ? h('div', {}, h('div', { class: 'pct' }, Math.round(lo / ln * 100) + '%'), h('p', { class: 'muted sm' }, `${ln}문항 중 ${lo}개 정답`),
+      ...Object.entries(bySub).sort((a, b) => b[1][1] - a[1][1]).map(([k, [o, n]]) => h('div', { class: 'bar' }, h('div', { class: 'l' }, h('span', { lang: 'ja' }, k), h('b', {}, `${Math.round(o / n * 100)}% · ${n}문항`)), h('div', { class: 'tr' }, h('div', { style: `width:${o / n * 100}%` })))))
+      : h('div', { class: 'muted' }, '아직 청해 기록이 없어요.'),
+      h('div', { class: 'row end' }, h('button', { class: 'btn ghost sm', onclick: () => nav('test', 'listen') }, '청해 연습하러 가기 →')));
+    const ws = maintainWS(), week = addDays(App.today, -6);
+    let mWeek = 0; for (const c of Object.values(App.prog)) for (const [id, p] of Object.entries(c)) if (p.s === 'm' && p.md && p.md >= week && !App.alias[id]) mWeek++;
+    const wc = card('⭐ 이번에 외울 단어', `${ws.length}개`, h('p', { class: 'muted sm' }, `최근 7일 동안 익힘이 된 항목 ${mWeek}개`),
+      h('div', { class: 'chips' }, ws.slice(0, 25).map(id => { const it = App.byId[id], p = P(id) || {}; return h('span', { class: 'chip ' + STATUS_CLS[status(id)], lang: 'ja', title: `${it.m} · 연속 ${p.cs || 0}/3` }, it.w + ' ' + '●'.repeat(Math.min(p.cs || 0, 3)) + '○'.repeat(3 - Math.min(p.cs || 0, 3))); })),
+      h('p', { class: 'muted sm' }, '● 하나가 서로 다른 시험에서 한 번 맞힌 것이에요. ●●●가 되면 익힘이 되고 새 단어가 들어와요.'),
+      h('div', { class: 'row end' }, h('button', { class: 'btn ghost sm', onclick: () => quickSort() }, '⚡ 아는 단어 거르기')));
+    const row2 = h('div', { class: 'grid2 r2' }, lc, wc); v.append(row2);
+  }
   const weak = weakItems(6);
   row.append(card('자주 틀리는 항목', '최근 2주', weak.length ? h('ul', { class: 'weak' }, weak.map(([id, n], i) => { const it = App.byId[id]; return h('li', {}, h('span', { class: 'n' }, String(i + 1)), h('div', { class: 't' }, h('span', { lang: 'ja' }, itemLabel(it)), h('p', {}, (it.r && it.t === 'v' ? it.r + ' · ' : '') + it.m)), h('span', { class: 'cnt' }, n + '회')); })) : h('div', { class: 'muted' }, '아직 틀린 기록이 없어요.')));
   // DB table
   const db = card('전체 학습 항목', `마스터 DB · ${allVocab().length + App.M.kanji.length + allGrammar().length}개`); v.append(db);
   const q = h('input', { placeholder: '단어, 한자, 문법, 뜻 검색…' });
   const fType = h('select', {}, [['', '전체'], ['v', '단어'], ['k', '한자'], ['g', '문법']].map(([k, n]) => h('option', { value: k }, n)));
-  const fLv = h('select', {}, [['', '전 레벨'], ['5', 'N5'], ['4', 'N4'], ['3', 'N3'], ['2', 'N2'], ['0', '기타']].map(([k, n]) => h('option', { value: k }, n)));
+  const fLv = h('select', {}, [['', '전 레벨'], ['5', 'N5'], ['4', 'N4'], ['3', 'N3'], ['2', 'N2'], ['1', 'N1'], ['0', '기타']].map(([k, n]) => h('option', { value: k }, n)));
   const fSt = h('select', {}, [['', '전 상태'], ...Object.entries(STATUS)].map(([k, n]) => h('option', { value: k }, n)));
   const tbl = h('div', { class: 'tblwrap' }); let page = 0;
   const more = h('button', { class: 'linkbtn', onclick: () => { page++; draw(false); } }, '더 보기');
@@ -994,25 +1127,54 @@ function renderSettings(v) {
     };
     try {
       if (!App.sample) { line(false, '연결 설정', 'Supabase 연결 없음'); return; }
+      // 0) AI 함수 자체 확인
+      const hz = await App.sample.health().catch(e => ({ ok: false, message: String(e?.message || e) }));
+      if (hz.ok && hz.version) line(true, 'AI 함수', `최신 버전 (${hz.version})` + (hz.key ? '' : ' · 키 없음!'));
+      else if (hz.code === 'invalid_request' || hz.status === 400 || hz.status === 405) line(false, 'AI 함수', '예전 버전이에요. 설치 안내서 4단계대로 ai 함수를 다시 배포해 주세요.');
+      else if (!hz.status) line(false, 'AI 함수', '연결 자체가 안 돼요 (인터넷 또는 Supabase 일시정지 확인) · ' + (hz.message || '').slice(0, 60));
+      else line(false, 'AI 함수', `HTTP ${hz.status} ${(hz.message || '').slice(0, 80)}`);
       let t0 = Date.now();
       try { const r = await App.sample.json('JSON만 답하세요: {"ok":true,"hello":"こんにちは"}', { modelTier: 'quick', cache: false }); line(!!r, '빠른 모델', [App.lastAI?.model, ((Date.now() - t0) / 1000).toFixed(1) + '초'].filter(Boolean).join(' · ')); }
-      catch (e) { line(false, '빠른 모델', aiErrorText(e)); showRaw(e); return; }
+      catch (e) { line(false, '빠른 모델', errDetail(e)); showRaw(e); return; }
       t0 = Date.now();
       try { const r = await App.sample.json('JSON만 답하세요: {"ok":true}', { modelTier: 'vision', cache: false }); line(!!r, '사진 읽기 모델', [App.lastAI?.model, ((Date.now() - t0) / 1000).toFixed(1) + '초'].filter(Boolean).join(' · ')); }
-      catch (e) { line(false, '사진 읽기 모델', aiErrorText(e)); }
+      catch (e) { line(false, '사진 읽기 모델', errDetail(e)); }
       t0 = Date.now();
       try {
         const arr = await App.sample.json(`JLPT N5 문법 문제 2개를 만드세요.\n${Q_SPEC}`, { modelTier: 'default', async: true, kind: 'test' });
         const qs = validateQs(arr, null);
         line(qs.length > 0, '문제 만들기 (맡겨 두기 방식)', [App.lastAI?.model, ((Date.now() - t0) / 1000).toFixed(1) + '초', `문제 ${qs.length}개 읽음`].filter(Boolean).join(' · '));
         if (!qs.length) showRaw({ text: App.lastAI?.text });
-      } catch (e) { line(false, '문제 만들기 모델', aiErrorText(e)); showRaw(e); }
-    } finally { done(); }
+      } catch (e) { line(false, '문제 만들기 모델', errDetail(e)); showRaw(e); }
+    } finally { done(); showErrLog(); }
+    function errDetail(e) { return `${aiErrorText(e)} [${e?.code || '?'}${e?.status ? ' / HTTP ' + e.status : ''}]`; }
+    function showErrLog() {
+      const log = App.aiErrors || [];
+      if (!log.length) return;
+      const txt = JSON.stringify({ at: new Date().toISOString(), ua: navigator.userAgent.slice(0, 120), errors: log }, null, 1);
+      out.append(h('details', { class: 'raw' }, h('summary', {}, `최근 AI 오류 ${log.length}건 (원인 찾기용)`),
+        h('div', { class: 'errlog' }, log.slice().reverse().map(x => h('div', { class: 'sm' }, `${x.at} · ${x.tier || '-'} · ${x.code}${x.status ? ' / ' + x.status : ''}${x.online === false ? ' · 오프라인' : ''}${x.hidden ? ' · 화면 꺼짐' : ''} · ${x.msg}`))),
+        h('button', { class: 'btn ghost sm', onclick: () => { navigator.clipboard?.writeText(txt).then(() => toast('복사했어요. Claude에게 붙여 넣어 주세요.')).catch(() => toast('복사하지 못했어요.')); } }, '📋 오류 기록 복사')));
+    }
     function showRaw(e) {
       const raw = e?.text || App.lastAI?.text || e?.message || '';
       if (raw) out.append(h('details', { class: 'raw' }, h('summary', {}, 'AI 응답 원문 보기 (오류 확인용)'), h('pre', {}, String(raw).slice(0, 3000))));
     }
   } }, 'AI 연결 테스트');
+  // 문제 은행 검수
+  {
+    const all = App.banks.flatMap(b => b.qs || []), live = all.filter(q => !q.bad), unchk = live.filter(q => !q.chk);
+    const info = h('p', { class: 'muted sm' }, `문제 ${live.length}개 · 검수 안 함 ${unchk.length}개 · 뺀 문제 ${all.length - live.length}개`);
+    const prog = h('div', { class: 'sm' });
+    const go = h('button', { class: 'btn sm', disabled: !unchk.length, onclick: async () => {
+      const done = busy(go, '검수 중…');
+      try {
+        const r = await checkBank({ onProgress: (d, t, f, x) => { prog.textContent = `${d} / ${t} 확인 · 고침 ${f} · 뺌 ${x}`; } });
+        toast(`검수 끝: ${r.checked}개 중 ${r.fixed}개 고치고 ${r.dropped}개 뺐어요.`); nav('settings');
+      } catch (e) { toast(aiErrorText(e), 'err'); done(); }
+    } }, unchk.length ? `검수 안 한 문제 ${unchk.length}개 검수` : '모두 검수했어요');
+    right.append(card('문제 은행 검수', '', h('p', { class: 'muted sm' }, 'AI가 만든 문제 중 정답을 넣으면 문장이 틀어지거나, 정답이 둘이거나, 해설이 맞지 않는 문제를 찾아 고치거나 빼요. 새로 만드는 문제는 자동으로 검수돼요. 8문제에 20~40초쯤 걸려요.'), info, h('div', { class: 'row end' }, go), prog));
+  }
   right.append(card('AI 연결', '', h('p', { class: 'muted sm' }, '문제 만들기가 안 될 때 눌러 보세요. 키·함수·모델 중 어디가 문제인지 보여줘요.'), h('div', { class: 'row end' }, tbtn), out));
 
   // 6. 백업 · 로그아웃

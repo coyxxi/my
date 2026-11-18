@@ -57,7 +57,8 @@ async function loadMaster() {
   const [m, ex] = await Promise.all([
     fetch('data/master.json').then(r => r.json()),
     fetch('data/examples.json').then(r => r.json()).catch(() => []),
-  ]);
+    fetch('data/groups.json').then(r => r.json()).catch(() => ({ kanji: [], grammar: [] })),
+  ]).then(([m, ex, gr]) => { App.G = gr; return [m, ex]; });
   App.M = m; App.EX = ex;
   for (const v of m.vocab) { v.t = 'v'; App.byId[v.id] = v; }
   for (const k of m.kanji) { k.t = 'k'; App.byId[k.id] = k; }
@@ -67,16 +68,80 @@ function registerCustom() {
   for (const v of App.custom.vocab) { v.t = 'v'; App.byId[v.id] = v; }
   for (const g of App.custom.grammar) { g.t = 'g'; App.byId[g.id] = g; }
 }
-const allVocab = () => App.M.vocab.concat(App.custom.vocab);
-const allGrammar = () => App.M.grammar.concat(App.custom.grammar);
+const allVocab = () => App.M.vocab.concat(App.custom.vocab).filter(v => !App.alias[v.id]);
+const allGrammar = () => App.M.grammar.concat(App.custom.grammar).filter(g => !App.alias[g.id]);
+
+/* ---------- 중복 정리: 같은 단어가 두 번 있으면 하나로 합쳐요 (기록은 합쳐서 남겨요) ---------- */
+App.alias = {};
+const canon = id => App.alias[id] || id;
+const ST_RANK = { n: 0, a: 1, l: 2, m: 3 };
+function mergeProg(a, b) { // 여러 번 실행해도 결과가 같게 (큰 값·앞선 날짜 기준)
+  const o = Object.assign({}, a);
+  if ((ST_RANK[b.s || 'n'] || 0) > (ST_RANK[o.s || 'n'] || 0)) o.s = b.s;
+  for (const f of ['c', 'r', 'w', 'qa']) if ((b[f] || 0) > (o[f] || 0)) o[f] = b[f];
+  for (const f of ['d', 'lw']) if (b[f] && (!o[f] || b[f] > o[f])) o[f] = b[f];
+  if (b.nx && (!o.nx || b.nx < o.nx)) o.nx = b.nx;
+  if ((b.h || '').length > (o.h || '').length) o.h = b.h;
+  return o;
+}
+function buildAliases() {
+  const al = Object.assign({}, App.custom.alias || {});
+  // 기본 데이터 안의 중복: 시트에서 온 단어(WS)가 같은 표기·읽기의 기본 단어와 겹치면 기본 단어로
+  const byW = {};
+  for (const v of App.M.vocab) (byW[v.w] = byW[v.w] || []).push(v);
+  for (const list of Object.values(byW)) if (list.length > 1) {
+    const main = list.find(v => !v.id.startsWith('WS'));
+    if (main) for (const v of list) if (v !== main && v.id.startsWith('WS') && v.r === main.r) al[v.id] = main.id;
+  }
+  // 수업·메모에서 추가한 단어가 기본 데이터(또는 먼저 추가한 단어)와 같으면 합쳐요
+  const seen = {};
+  for (const v of App.M.vocab) if (!al[v.id]) seen[v.w + '|' + v.r] = seen[v.w + '|' + v.r] || v.id, seen[v.w] = seen[v.w] || v.id;
+  for (const v of App.custom.vocab) {
+    if (al[v.id]) continue;
+    const hit = seen[v.w + '|' + (v.r || '')] || (!v.r ? seen[v.w] : null) || (seen[v.w] && App.byId[seen[v.w]]?.r === v.r ? seen[v.w] : null);
+    if (hit && hit !== v.id) al[v.id] = hit; else { seen[v.w + '|' + (v.r || '')] = v.id; seen[v.w] = seen[v.w] || v.id; }
+  }
+  const gp = {};
+  for (const g of App.M.grammar) gp[g.p] = gp[g.p] || g.id;
+  for (const g of App.custom.grammar) { if (al[g.id]) continue; if (gp[g.p] && gp[g.p] !== g.id) al[g.id] = gp[g.p]; else gp[g.p] = g.id; }
+  for (const k of Object.keys(al)) { let t = al[k], n = 0; while (al[t] && n++ < 5) t = al[t]; al[k] = t; } // 연결 정리
+  App.alias = al;
+  for (const [d, c] of Object.entries(al)) if (App.byId[c]) App.byId[d] = App.byId[c];
+  // 중복 쪽에 쌓인 기록은 남는 쪽으로 합쳐요
+  const touched = new Set();
+  for (const d of Object.keys(al)) {
+    const dp = (App.prog[chunkOf(d)] || {})[d]; if (!dp) continue;
+    const c = al[d], ck = chunkOf(c);
+    App.prog[ck] = App.prog[ck] || {};
+    const cur = App.prog[ck][c] || { s: 'n', c: 0, r: 0, w: 0 };
+    const m = mergeProg(cur, dp);
+    if (!same(m, App.prog[ck][c])) { App.prog[ck][c] = m; touched.add(ck); }
+  }
+  touched.forEach(ck => markDirty('prog:' + ck));
+  return touched.size;
+}
+/* 서버의 사용자 단어 목록에서도 중복을 빼요 (기록이 저장된 뒤에, 참조는 alias로 계속 연결) */
+async function cleanupCustomDups() {
+  const dupCustom = [...App.custom.vocab, ...App.custom.grammar].filter(x => App.alias[x.id]);
+  if (!dupCustom.length || !App.db) return;
+  await flushSaves();
+  const ids = new Set(dupCustom.map(x => x.id)), al = {};
+  for (const id of ids) al[id] = App.alias[id];
+  const m = await mergeWrite('custom/items', cur => {
+    if (!cur) return null;
+    return { vocab: (cur.vocab || []).filter(x => !ids.has(x.id)), grammar: (cur.grammar || []).filter(x => !ids.has(x.id)), alias: Object.assign({}, cur.alias || {}, al) };
+  }).catch(() => null);
+  if (m) { App.custom = { vocab: m.vocab, grammar: m.grammar, alias: m.alias }; registerCustom(); buildAliases(); }
+}
 const itemLabel = it => !it ? '?' : it.t === 'v' ? it.w : it.t === 'k' ? it.c : it.p;
 const itemMeaning = it => !it ? '' : it.m;
 const chunkOf = id => id.split('-')[0];
 
 /* ---------- progress ---------- */
-function P(id) { const c = App.prog[chunkOf(id)]; return (c && c[id]) || null; }
+function P(id) { id = canon(id); const c = App.prog[chunkOf(id)]; return (c && c[id]) || null; }
 function status(id) { return P(id)?.s || 'n'; }
 function ensureP(id) {
+  id = canon(id);
   const k = chunkOf(id);
   App.prog[k] = App.prog[k] || {};
   return (App.prog[k][id] = App.prog[k][id] || { s: 'n', c: 0, r: 0, w: 0 });
@@ -222,34 +287,69 @@ function setStatus(id, s) {
   if (s === 'a' && p.s !== 'n') return; // never downgrade
   p.s = s; markDirty('prog:' + chunkOf(id));
 }
-function recordAnswer(ids, ok, area, qref) {
-  const t = App.today;
-  for (const id of ids || []) {
+/* 익힘 규칙
+   - 서로 다른 시험(2시간 이상 떨어진 시험)에서 3번 연속 맞히면 익힘 (아침·점심·저녁 세 번이면 그날 익힘)
+   - 익힘 뒤에는 3일 → 7일 → 15일 → 30일 뒤에 확인 문제가 나오고, 틀리면 다시 "학습 중"
+   - 같은 시험 안에서 다시 맞힌 건 세지 않아요 */
+const SESSION_GAP = 2 * 3600e3;
+const M_INTERVALS = [3, 7, 15, 30];
+function recordAnswer(ids, ok, area, qref, sub) {
+  const t = App.today, now = Date.now();
+  ids = [...new Set((ids || []).map(canon))];
+  for (const id of ids) {
     if (!App.byId[id]) continue;
     const p = ensureP(id);
+    const newSession = !p.ls || now - p.ls >= SESSION_GAP;
     if (ok) {
       p.r = (p.r || 0) + 1;
       if (p.d !== t) { p.c = (p.c || 0) + 1; p.d = t; }
-      const hist = ((p.h || '') + 'o').slice(-6);
-      // 익힘: 서로 다른 날 3번 연속 정답, 또는 최근 4번 연속 정답
-      const mastered = p.c >= 3 || /oooo$/.test(hist);
-      p.s = mastered ? 'm' : 'l';
-      p.nx = addDays(t, INTERVALS[Math.min(mastered ? Math.max(p.c, 3) : p.c, INTERVALS.length - 1)]);
+      if (newSession) { p.cs = (p.cs || 0) + 1; p.ls = now; }
+      if (p.s === 'm') {
+        // 확인 문제를 맞히면 다음 확인까지 간격을 늘려요
+        if (newSession && (!p.nx || p.nx <= t)) { p.ms = Math.min((p.ms || 0) + 1, M_INTERVALS.length - 1); p.nx = addDays(t, M_INTERVALS[p.ms]); }
+      } else if ((p.cs || 0) >= 3) {
+        p.s = 'm'; p.ms = 0; p.md = t; p.nx = addDays(t, M_INTERVALS[0]); wsRemove(id);
+      } else {
+        p.s = 'l'; p.nx = addDays(t, 1);
+      }
     } else {
-      p.w = (p.w || 0) + 1; p.c = 0; p.s = 'l'; p.nx = addDays(t, 1); p.lw = t;
+      p.w = (p.w || 0) + 1; p.c = 0; p.cs = 0; p.ms = 0; p.ls = now; p.s = 'l'; p.nx = addDays(t, 1); p.lw = t;
+      if (App.byId[id]?.t === 'v') wsAddFront(id); // 틀린 단어는 "이번에 외울 단어"로
     }
     p.h = ((p.h || '') + (ok ? 'o' : 'x')).slice(-6);
-    p.qa = Date.now(); // 마지막으로 문제에 나온 때 (골고루 내기용)
+    p.qa = now; // 마지막으로 문제에 나온 때 (골고루 내기용)
     markDirty('prog:' + chunkOf(id));
   }
   const mon = t.slice(0, 7);
   App.logs[mon] = App.logs[mon] || {};
-  (App.logs[mon][t] = App.logs[mon][t] || []).push([area || 'v', ok ? 1 : 0, (ids || []).join(',')]);
+  const row = [area || 'v', ok ? 1 : 0, (ids || []).join(',')]; if (sub) row.push(String(sub).slice(0, 20));
+  (App.logs[mon][t] = App.logs[mon][t] || []).push(row);
   markDirty('log:' + mon);
   if (!ok && qref) {
     App.wrong.push({ at: t, area, ids, q: qref });
     markDirty('wrong');
   }
+}
+
+/* ---------- 이번에 외울 단어 (작업 묶음): 25개를 집중해서 돌리고, 익히면 새 단어로 바꿔요 ---------- */
+const WS_SIZE = 25;
+function wsList() { return (App.state.ws || []).map(canon).filter(id => App.byId[id]?.t === 'v' && ['a', 'l'].includes(status(id))); }
+function wsSave(list) { const v = [...new Set(list)].slice(0, WS_SIZE + 5); if (!same(v, App.state.ws)) { App.state.ws = v; saveState(); } }
+function wsRemove(id) { if ((App.state.ws || []).includes(id)) wsSave(App.state.ws.filter(x => x !== id)); }
+function wsAddFront(id) { wsSave([id, ...(App.state.ws || []).filter(x => x !== id)]); }
+function maintainWS() {
+  let ws = wsList();
+  if (ws.length < WS_SIZE) {
+    const have = new Set(ws);
+    const add = id => { if (ws.length < WS_SIZE && !have.has(id) && !App.alias[id] && App.byId[id]?.t === 'v' && ['a', 'l'].includes(status(id))) { ws.push(id); have.add(id); } };
+    // ① 학습 중(틀렸던 것) ② 최근 수업 단어 ③ 학원에서 배운 단어 (쉬운 레벨부터)
+    allVocab().filter(v => status(v.id) === 'l').sort((a, b) => String(P(b.id)?.lw || '').localeCompare(String(P(a.id)?.lw || ''))).forEach(v => add(v.id));
+    for (const L of App.lessons) for (const id of L.vocabIds || []) add(canon(id));
+    const rest = allVocab().filter(v => status(v.id) === 'a' && !have.has(v.id));
+    rest.sort((a, b) => ((b.l || 0) - (a.l || 0)) || (Math.random() - 0.5)).forEach(v => add(v.id));
+  }
+  wsSave(ws);
+  return ws;
 }
 
 /* ---------- stats ---------- */
@@ -283,13 +383,13 @@ function weeklyAccuracy(weeks = 6) {
 }
 function dueCount() {
   const t = App.today; let n = 0;
-  for (const chunk of Object.values(App.prog)) for (const [id, p] of Object.entries(chunk)) if (p.nx && p.nx <= t && p.s !== 'n' && App.byId[id]) n++;
+  for (const chunk of Object.values(App.prog)) for (const [id, p] of Object.entries(chunk)) if (p.nx && p.nx <= t && p.s !== 'n' && App.byId[id] && !App.alias[id]) n++;
   return n;
 }
 function dueItems(limit = 12) {
   const t = App.today, out = [];
   for (const chunk of Object.values(App.prog)) for (const [id, p] of Object.entries(chunk)) {
-    if (p.nx && p.nx <= t && p.s !== 'n' && App.byId[id]) out.push(id);
+    if (p.nx && p.nx <= t && p.s !== 'n' && App.byId[id] && !App.alias[id]) out.push(id);
   }
   out.sort((a, b) => (P(a).nx || '').localeCompare(P(b).nx || ''));
   return out.slice(0, limit);
@@ -316,7 +416,7 @@ function weakItems(n = 5) {
   const from = addDays(App.today, -14), cnt = {};
   for (const m of Object.values(App.logs)) for (const [d, arr] of Object.entries(m)) {
     if (d < from) continue;
-    for (const [, ok, ids] of arr) if (!ok) for (const id of String(ids).split(',')) if (id) cnt[id] = (cnt[id] || 0) + 1;
+    for (const [, ok, ids] of arr) if (!ok) for (const id of String(ids).split(',')) if (id) cnt[canon(id)] = (cnt[canon(id)] || 0) + 1;
   }
   return Object.entries(cnt).filter(([id]) => App.byId[id]).sort((a, b) => b[1] - a[1]).slice(0, n);
 }
@@ -326,7 +426,7 @@ function aiErrorText(e) {
   const c = e?.code;
   if (c === 'not_granted') return 'AI 연결이 설정되지 않았거나 로그인이 만료됐어요.';
   if (c === 'no_key') return 'Supabase에 GEMINI_API_KEY가 설정되지 않았어요. 설치 안내서 4단계를 확인해 주세요.';
-  if (c === 'network') return '연결이 끊겨서 AI 답을 받지 못했어요. 정리하는 동안 화면을 켜 둔 채 이 페이지에서 기다려 주세요. 사진이 많으면 2~3장씩 나눠서 해 보세요.';
+  if (c === 'network') return '연결이 잠깐 끊겨서 AI 답을 받지 못했어요 (자동으로 3번 시도했어요). 다시 눌러 주세요. 계속 이러면 설정 → AI 연결 테스트를 눌러 보세요.';
   if (c === 'timeout') return 'AI 답이 너무 오래 걸려 중간에 멈췄어요. 사진을 2~3장씩 나눠서 다시 해 보세요.';
   if (c === 'overloaded') return '지금 AI 서버에 사용자가 몰려서 모든 모델이 바빠요. 1~2분 뒤 다시 눌러 주세요.';
   if (c === 'upstream') return 'AI 서버가 응답하지 않았어요. 잠시 후 다시 시도해 주세요. (' + (e?.message || '').slice(0, 80) + ')';
@@ -401,7 +501,7 @@ function scheduleBankSave() {
         for (const q of local.qs || []) {
           if (same(q, baseQ[q.id])) continue;
           const rq = (cur.qs || []).find(x => x.id === q.id);
-          if (rq) { for (const f of ['seen', 'ok', 'bad', 'ko', 'cko']) if (q[f] !== undefined) rq[f] = q[f]; } else (cur.qs = cur.qs || []).push(q);
+          if (rq) { for (const f of ['seen', 'ok', 'bad', 'ko', 'cko', 'chk', 'fixed', 'prompt', 'choices', 'ans', 'expl']) if (q[f] !== undefined) rq[f] = q[f]; } else (cur.qs = cur.qs || []).push(q);
         }
         return cur;
       }).then(m => { if (m) App.base.banks[b.id] = clone(m); }).catch(() => { b._dirty = true; });
@@ -541,7 +641,11 @@ ${itemsForPrompt(shuffle(ids).slice(0, 14))}
 만들 문제 (총 ${n}개): ${Object.entries(b).map(([k, v]) => `${k} ${v}개`).join(', ')}
 각 문제의 items에는 위 목록의 id 중 실제로 묻는 항목을 넣으세요.
 ${qSpec(level)}`;
-    try { const arr = await aiJSON(prompt, { signal, modelTier: 'default', async: true, kind: 'questions' }); return validateQs(arr, null); }
+    try {
+      const arr = validateQs(await aiJSON(prompt, { signal, modelTier: 'default', async: true, kind: 'questions' }), null);
+      // 만든 문제를 한 번 더 검수해서, 정답을 넣으면 문장이 틀어지는 문제 등을 고치거나 빼요
+      try { return await verifyQs(arr, level, signal); } catch (e) { if (e?.code === 'cancelled') throw e; return arr; }
+    }
     catch (e) { if (e?.code === 'cancelled' || e?.code === 'not_granted' || e?.code === 'no_key') throw e; console.warn('batch failed', e); App.lastAIError = e; return []; }
     finally { done++; BG.set(`문제 만드는 중… ${done}/${total}`); onProgress && onProgress(done, total); }
   };
@@ -557,6 +661,67 @@ ${qSpec(level)}`;
   return bank;
 }
 
+/* ---------- 문제 검수: 정답을 빈칸에 넣으면 완전한 문장이 되는지, 정답이 하나뿐인지, 해설이 맞는지 ---------- */
+async function verifyQs(qs, level = 5, signal) {
+  if (!qs.length || !App.sample) return qs;
+  const out = [];
+  for (let b = 0; b < qs.length; b += 8) {
+    const chunk = qs.slice(b, b + 8);
+    const list = chunk.map((q, i) => JSON.stringify({ i, type: q.sub, area: q.area, passage: q.passage ? plainJa(q.passage).slice(0, 500) : undefined, script: q.script ? q.script.map(l => l.s + ': ' + plainJa(l.t)).join(' / ').slice(0, 500) : undefined, prompt: plainJa(q.prompt), choices: q.choices.map(plainJa), ans: q.ans, expl: q.expl })).join('\n');
+    const res = await aiJSON(`당신은 JLPT N${level} 문제 검수자입니다. 아래 문제를 하나씩 엄격하게 확인하세요.
+확인할 것:
+1) 정답 보기(ans는 0부터 시작하는 번호)를 빈칸에 넣으면 문법적으로 완전하고 자연스러운 문장이 되는가 (예: 「写真を（　）でください」에 「撮ら」를 넣으면 「撮らでください」로 틀림 → 빈칸 뒤가 「ないでください」여야 함)
+2) 정답이 정확히 하나뿐인가 (다른 보기도 정답이 될 수 있으면 문제)
+3) 해설(expl)이 실제 정답과 맞는가
+4) 文の組み立て(★)는 네 조각을 바른 순서로 놓을 수 있고 ★ 위치의 답이 맞는가
+문제가 없으면 {"i":번호,"ok":true}.
+문제가 있으면 최소한으로 고친 문제를 주세요: {"i":번호,"ok":false,"why":"한국어로 짧게","fix":{"prompt":"고친 문제 문장","choices":["","","",""],"ans":0,"expl":"한국어 해설"}} (바꾼 필드만 넣어도 됨).
+고칠 수 없으면 {"i":번호,"ok":false,"drop":true,"why":"..."}.
+JSON 배열만 답하세요.
+${list}`, { signal, modelTier: 'default', async: true, kind: 'verify' });
+    const by = {}; for (const r of Array.isArray(res) ? res : []) if (r && r.i != null) by[+r.i] = r;
+    chunk.forEach((q, i) => {
+      const r = by[i];
+      if (!r || r.ok) { out.push(Object.assign(q, { chk: 1 })); return; }
+      if (r.drop || !r.fix) { if (r.drop) return; out.push(Object.assign(q, { chk: 1 })); return; }
+      const fixed = applyQFix(q, r.fix);
+      if (fixed) out.push(Object.assign(fixed, { chk: 1, fixed: String(r.why || '').slice(0, 100) }));
+    });
+  }
+  return out;
+}
+/* 검수 결과의 수정 내용을 원래 문제에 적용 (형식이 맞지 않으면 null) */
+function applyQFix(q, fix) {
+  const n = Object.assign({}, q);
+  if (fix.prompt) n.prompt = fixFuri(String(fix.prompt).slice(0, 600));
+  if (Array.isArray(fix.choices)) { if (fix.choices.length !== 4) return null; n.choices = fix.choices.map(c => fixFuri(String(c).slice(0, 160))); }
+  if (fix.ans != null) { const a = Number(fix.ans); if (!(a >= 0 && a <= 3)) return null; n.ans = a; }
+  if (fix.expl) n.expl = String(fix.expl).slice(0, 300);
+  if (fix.prompt || fix.choices) { delete n.ko; delete n.cko; } // 문장이 바뀌면 뜻 풀이는 다시 받아요
+  return n;
+}
+/* 문제 은행 검수: 아직 검수하지 않은 문제를 8개씩 확인해서 고치거나 빼요 */
+async function checkBank({ onProgress, all = false } = {}) {
+  const targets = [];
+  for (const b of App.banks) for (const q of b.qs || []) if (!q.bad && (all || !q.chk)) targets.push([b, q]);
+  let fixed = 0, dropped = 0, done = 0;
+  for (let i = 0; i < targets.length; i += 8) {
+    const part = targets.slice(i, i + 8);
+    const lv = part[0][0].level || targetLevel();
+    let res;
+    try { res = await verifyQs(part.map(([, q]) => clone(q)), lv); } catch (e) { if (done === 0) throw e; break; }
+    const keep = new Map(res.map(q => [q.id, q]));
+    for (const [b, q] of part) {
+      const r = keep.get(q.id);
+      if (!r) { q.bad = true; dropped++; }
+      else { if (r.fixed) { Object.assign(q, { prompt: r.prompt, choices: r.choices, ans: r.ans, expl: r.expl, fixed: r.fixed }); delete q.ko; delete q.cko; fixed++; } q.chk = 1; }
+      b._dirty = true;
+    }
+    done += part.length; scheduleBankSave(); onProgress && onProgress(done, targets.length, fixed, dropped);
+  }
+  return { total: targets.length, checked: done, fixed, dropped };
+}
+
 /* ---------- rule-based vocab questions ---------- */
 function vocabQuestion(id, mode) {
   const it = App.byId[id]; if (!it) return null;
@@ -564,7 +729,7 @@ function vocabQuestion(id, mode) {
     return { id: 'r' + id, area: 'g', sub: '문법 의미', items: [id], prompt: `「${it.p}」의 뜻으로 알맞은 것은?`, choices: null, _pool: allGrammar().filter(g => g.id !== id && g.m !== it.m).map(g => g.m), _ans: it.m, expl: `${it.f}\n예) ${it.ej} — ${it.ek}` };
   }
   if (it.t === 'k') {
-    const pool = App.M.kanji.filter(k => k.id !== id && k.m !== it.m).map(k => k.m);
+    const pool = App.M.kanji.filter(k => k.id !== id && k.m !== it.m && (k.l >= 2 || it.l === 1)).map(k => k.m);
     return finishRule({ id: 'r' + id, area: 'v', sub: '漢字 훈음', items: [id], prompt: `한자 「${it.c}」의 뜻·음은?`, _pool: pool, _ans: it.m, expl: `음독 ${it.on || '-'} / 훈독 ${it.kun || '-'}` });
   }
   const hasKanji = /[一-龯]/.test(it.w);
@@ -661,12 +826,14 @@ async function loadAll() {
       db.collection('memos').orderBy('at', 'desc').limit(200).get(), db.collection('qbank').get(),
       db.collection('log').get(),
     ]);
+    const gsSnap = await db.doc('state/groups').get().catch(() => null);
+    App.gs = gsSnap?.exists ? clone(gsSnap.data()) : { k: {}, g: {} };
     App.state = st.exists ? clone(st.data()) : {};
     App.wrong = wr.exists ? clone(wr.data().list || []) : [];
     App.drill = dr.exists ? clone(dr.data().list || []) : [];
     App.base.state = clone(App.state); App.base.wrongLen = App.wrong.length;
     App.base.drill = Object.fromEntries(App.drill.map(d => [d.id, clone(d)]));
-    if (cu.exists) { const d = cu.data(); App.custom = { vocab: [...(d.vocab || [])], grammar: [...(d.grammar || [])] }; registerCustom(); }
+    if (cu.exists) { const d = cu.data(); App.custom = { vocab: [...(d.vocab || [])], grammar: [...(d.grammar || [])], alias: d.alias || {} }; registerCustom(); }
     for (const d of progSnap.docs) { App.prog[d.id] = clone(d.data().items || {}); App.base.prog[d.id] = clone(d.data().items || {}); }
     App.lessons = lessons.docs.map(d => ({ id: d.id, ...JSON.parse(JSON.stringify(d.data())) }));
     App.memos = memos.docs.map(d => ({ id: d.id, ...JSON.parse(JSON.stringify(d.data())) }));
@@ -674,15 +841,16 @@ async function loadAll() {
     App.banks = banks.docs.map(d => ({ id: d.id, ...clone(d.data()) })).concat(arch);
     App.base.banks = Object.assign(Object.fromEntries(arch.map(b => [b.id, App.base.banks?.[b.id] || clone(b)])), Object.fromEntries(banks.docs.map(d => [d.id, clone(d.data())])));
     for (const d of logs.docs) { App.logs[d.id] = clone(d.data().days || {}); App.base.logs[d.id] = clone(d.data().days || {}); }
+    buildAliases();
     App.loadedAt = Date.now(); App.loadFailed = false;
   } catch (e) { App.loadFailed = true; throw e; } finally { clearTimeout(timeout); $('#netNote')?.classList.remove('show'); }
 }
 function saveCustom() {
   const local = clone({ vocab: App.custom.vocab, grammar: App.custom.grammar });
   return mergeWrite('custom/items', cur => {
-    const out = { vocab: cur?.vocab || [], grammar: cur?.grammar || [] };
+    const out = { vocab: cur?.vocab || [], grammar: cur?.grammar || [], alias: cur?.alias || {} };
     for (const k of ['vocab', 'grammar']) for (const it of local[k]) { const i = out[k].findIndex(x => x.id === it.id); if (i >= 0) out[k][i] = it; else out[k].push(it); }
     return out;
-  }).then(m => { if (m) { App.custom = { vocab: m.vocab, grammar: m.grammar }; registerCustom(); } return m; });
+  }).then(m => { if (m) { App.custom = { vocab: m.vocab, grammar: m.grammar, alias: m.alias || {} }; registerCustom(); buildAliases(); } return m; });
 }
 function saveState() { markDirty('state'); }

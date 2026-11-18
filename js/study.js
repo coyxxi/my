@@ -1,7 +1,7 @@
 /* 일본어 공부방 · 공부 탭 (단어장 · 한자 · 문법) */
 'use strict';
 const LV_OPTS = [['', '전 레벨'], ['5', 'N5'], ['4', 'N4'], ['3', 'N3'], ['2', 'N2'], ['0', '기타']];
-const ST_OPTS = [['', '전 상태'], ['due', '오늘 복습'], ['learn', '외울 것 (배움·학습 중)'], ...Object.entries(STATUS)];
+const ST_OPTS = [['', '전 상태'], ['ws', '⭐ 이번에 외울 단어'], ['due', '오늘 복습'], ['learn', '외울 것 (배움·학습 중)'], ...Object.entries(STATUS)];
 const sel = (opts, val) => h('select', {}, opts.map(([k, n]) => h('option', { value: k, selected: String(k) === String(val ?? '') }, n)));
 const studyPrefs = (() => { try { return JSON.parse(localStorage.getItem('jp.study') || '{}'); } catch { return {}; } })();
 const savePrefs = () => { try { localStorage.setItem('jp.study', JSON.stringify(studyPrefs)); } catch { } };
@@ -9,6 +9,7 @@ function statusMatch(id, f) {
   if (!f) return true;
   const p = P(id) || {};
   if (f === 'due') return p.nx && p.nx <= App.today;
+  if (f === 'ws') return (App.state.ws || []).includes(id);
   if (f === 'learn') return ['a', 'l'].includes(p.s || 'n');
   return (p.s || 'n') === f;
 }
@@ -51,7 +52,7 @@ function studyVocab(v) {
     if (fSrc.value === 'lesson-all') srcSet = new Set(App.lessons.flatMap(L => L.vocabIds || []));
     else if (fSrc.value === 'memo') srcSet = memoIds();
     else if (fSrc.value.startsWith('L:')) srcSet = new Set(App.lessons.find(L => 'L:' + L.id === fSrc.value)?.vocabIds || []);
-    rows = allVocab().filter(it => (!fLv.value || String(it.l || 0) === fLv.value) && statusMatch(it.id, fSt.value)
+    rows = allVocab().filter(it => (s || !fLv.value || String(it.l || 0) === fLv.value) && statusMatch(it.id, fSt.value)
       && (fSrc.value !== 'sheet' || it.src === '시트' || chunkOf(it.id) === 'WS') && (!srcSet || srcSet.has(it.id))
       && (!s || [it.w, it.r, it.m].some(x => x && String(x).toLowerCase().includes(s))));
     page = 0; draw(true);
@@ -64,7 +65,13 @@ function studyVocab(v) {
         h('div', { class: 'row tight gap' },
           h('button', { class: 'btn sm', disabled: !rows.length, onclick: () => { const o = overlay('단어 카드'); flashcards(o.body, priority(ids).slice(0, 30), { onExit: o.close, onDone: () => { o.close(); nav('study', 'vocab'); } }); } }, '카드로 외우기'),
           h('button', { class: 'btn ghost sm', disabled: !rows.length, onclick: () => { const o = overlay('단어 카드 · 뜻 보고 떠올리기'); flashcards(o.body, priority(ids).slice(0, 30), { front: 'ko', onExit: o.close, onDone: () => { o.close(); nav('study', 'vocab'); } }); } }, '뜻 → 일본어'),
-          h('button', { class: 'btn ghost sm', disabled: !rows.length, onclick: () => { const o = overlay('단어 퀴즈'); runQuiz(o.body, priority(ids).slice(0, 15).map(id => ruleQ(id)), { onExit: o.close, onDone: () => { o.close(); nav('study', 'vocab'); } }); } }, '퀴즈 15문항')));
+          h('button', { class: 'btn ghost sm', disabled: !rows.length, onclick: () => {
+            // 이번에 외울 단어가 목록에 있으면 그걸 중심으로 (10개) + 나머지에서 골고루
+            const ws = new Set(maintainWS()), inWs = ids.filter(id => ws.has(id));
+            const pickIds = balancedPick(inWs, 10).concat(balancedPick(ids.filter(id => !ws.has(id)), 15)).slice(0, 15);
+            const o = overlay('단어 퀴즈'); runQuiz(o.body, shuffle(pickIds).map(id => ruleQ(id)), { onExit: o.close, onDone: () => { o.close(); nav('study', 'vocab'); } });
+          } }, '퀴즈 15문항'),
+          h('button', { class: 'btn ghost sm', title: '학원에서 배운 단어 중 이미 아는 것을 빠르게 걸러 익힘으로 보내요', onclick: () => quickSort() }, '⚡ 아는 단어 거르기')));
       if (!rows.length) grid.append(h('div', { class: 'empty sm' }, '조건에 맞는 단어가 없어요.'));
     }
     for (const it of rows.slice(page * 60, page * 60 + 60)) {
@@ -86,18 +93,23 @@ function studyVocab(v) {
 function studyKanji(v) {
   const pf = studyPrefs.kanji = studyPrefs.kanji || { lv: String(targetLevel()), st: '' };
   const q = h('input', { placeholder: '한자, 뜻, 읽기 검색…', value: pf.q || '' });
-  const fLv = sel([['', '전 레벨'], ['5', 'N5'], ['4', 'N4']], pf.lv), fSt = sel(ST_OPTS, pf.st);
+  const fLv = sel([['', '전 레벨'], ['5', 'N5'], ['4', 'N4'], ['3', 'N3'], ['2', 'N2'], ['1', 'N1 이상 (사전)']], pf.lv), fSt = sel(ST_OPTS, pf.st);
   const info = h('div', { class: 'studybar' }); const grid = h('div', { class: 'kgrid' });
   v.append(h('div', { class: 'card' }, h('div', { class: 'search' }, q, fLv, fSt), info, grid));
   function compute() {
     Object.assign(pf, { q: q.value, lv: fLv.value, st: fSt.value }); savePrefs();
     const s = q.value.trim();
-    const rows = App.M.kanji.filter(k => (!fLv.value || String(k.l) === fLv.value) && statusMatch(k.id, fSt.value) && (!s || [k.c, k.m, k.on, k.kun].some(x => x && x.includes(s))));
+    // 검색할 때는 전 레벨에서 찾아요. 「癒す」처럼 단어로 넣어도 그 안의 한자를 찾아요
+    const qk = new Set([...s].filter(ch => /[一-龯々]/.test(ch)));
+    const norm = x => String(x || '').replace(/[.\-・]/g, '');
+    const rows = App.M.kanji.filter(k => (s || !fLv.value || String(k.l) === fLv.value) && statusMatch(k.id, fSt.value) && (!s || qk.has(k.c) || [k.m, k.on, k.kun].some(x => x && (x.includes(s) || String(x).split('・').some(y => norm(y) === s || norm(y).startsWith(s))))))
+      .sort((a, b) => (s ? (qk.has(b.c) - qk.has(a.c)) || (b.l - a.l) : 0));
     info.innerHTML = ''; grid.innerHTML = '';
     const ids = rows.map(r => r.id);
     info.append(h('span', { class: 'muted' }, `${rows.length}자`), h('div', { class: 'row tight gap' },
       h('button', { class: 'btn sm', disabled: !rows.length, onclick: () => { const o = overlay('한자 카드'); flashcards(o.body, priority(ids).slice(0, 25), { onExit: o.close, onDone: () => { o.close(); nav('study', 'kanji'); } }); } }, '카드로 외우기'),
-      h('button', { class: 'btn ghost sm', disabled: !rows.length, onclick: () => { const vids = priority(rows.flatMap(k => relatedWords(k.c).slice(0, 2).map(w => w.id))).slice(0, 15); const o = overlay('한자 읽기 퀴즈'); runQuiz(o.body, vids.map(id => ruleQ(id, 'read')).concat(pick(ids, 5).map(id => ruleQ(id))), { onExit: o.close, onDone: () => { o.close(); nav('study', 'kanji'); } }); } }, '읽기 퀴즈')));
+      h('button', { class: 'btn ghost sm', disabled: !rows.length, onclick: () => { const vids = priority(rows.flatMap(k => relatedWords(k.c).slice(0, 2).map(w => w.id))).slice(0, 15); const o = overlay('한자 읽기 퀴즈'); runQuiz(o.body, vids.map(id => ruleQ(id, 'read')).concat(pick(ids, 5).map(id => ruleQ(id))), { onExit: o.close, onDone: () => { o.close(); nav('study', 'kanji'); } }); } }, '읽기 퀴즈'),
+      h('button', { class: 'btn ghost sm', onclick: () => groupList('k') }, '🧩 한자 묶음')));
     for (const k of rows) {
       const st = status(k.id);
       grid.append(h('button', { class: 'ktile st-' + st, onclick: () => kanjiDetail(k, compute) }, h('span', { class: 'kc jp-serif', lang: 'ja' }, k.c), h('span', { class: 'km' }, k.m)));
@@ -113,7 +125,8 @@ function kanjiDetail(k, after) {
   const p = P(k.id) || {};
   const s = sel(Object.entries(STATUS), p.s || 'n');
   const m = modal(h('div', { class: 'kdetail' },
-    h('div', { class: 'khead' }, h('div', { class: 'kbig jp-serif', lang: 'ja' }, k.c), h('div', {}, h('div', { class: 'big' }, k.m), h('div', { class: 'kv' }, h('span', {}, '음독'), h('b', { lang: 'ja' }, k.on || '-')), h('div', { class: 'kv' }, h('span', {}, '훈독'), h('b', { lang: 'ja' }, k.kun || '-')), h('span', { class: 'chip c-gray' }, 'N' + k.l))),
+    h('div', { class: 'khead' }, h('div', { class: 'kbig jp-serif', lang: 'ja' }, k.c), h('div', {}, h('div', { class: 'big' }, k.m), h('div', { class: 'kv' }, h('span', {}, '음독'), h('b', { lang: 'ja' }, k.on || '-')), h('div', { class: 'kv' }, h('span', {}, '훈독'), h('b', { lang: 'ja' }, k.kun || '-')), h('span', { class: 'chip c-gray' }, k.l === 1 ? 'N1 이상 (사전)' : 'N' + k.l))),
+    h('h3', { class: 'mini' }, '획순'), strokeBox(k, { size: 180 }), h('p', { class: 'muted sm stk-credit' }, '획순 자료: KanjiVG (CC BY-SA 3.0)'),
     h('h3', { class: 'mini' }, `이 한자가 들어간 단어 ${words.length}개`),
     words.length ? h('div', { class: 'rwords' }, words.map(w => h('div', { class: 'rw' }, h('span', { lang: 'ja', class: 'jpl' }, w.w), h('span', { lang: 'ja', class: 'muted' }, w.r), h('span', {}, w.m), h('span', { class: 'chip ' + STATUS_CLS[status(w.id)] }, STATUS[status(w.id)]), sayBtn(w.w)))) : h('div', { class: 'muted' }, '단어장에 아직 이 한자가 들어간 단어가 없어요.'),
     h('div', { class: 'row' }, h('label', {}, '상태 ', s), h('button', { class: 'btn sm', onclick: () => { const q = ensureP(k.id); q.s = s.value; if (s.value === 'm') q.c = Math.max(q.c || 0, 3); markDirty('prog:' + chunkOf(k.id)); flushSaves(); m.close(); after && after(); } }, '저장'),
@@ -130,12 +143,13 @@ function studyGrammar(v) {
   function compute() {
     Object.assign(pf, { q: q.value, lv: fLv.value, st: fSt.value }); savePrefs();
     const s = q.value.trim();
-    const rows = allGrammar().filter(g => (!fLv.value || String(g.l || 0) === fLv.value) && statusMatch(g.id, fSt.value) && (!s || [g.p, g.m, g.f, g.ej].some(x => x && x.includes(s))));
+    const rows = allGrammar().filter(g => (s || !fLv.value || String(g.l || 0) === fLv.value) && statusMatch(g.id, fSt.value) && (!s || [g.p, g.m, g.f, g.ej].some(x => x && x.includes(s))));
     info.innerHTML = ''; list.innerHTML = '';
     const ids = rows.map(r => r.id);
     info.append(h('span', { class: 'muted' }, `${rows.length}개`), h('div', { class: 'row tight gap' },
       h('button', { class: 'btn sm', disabled: !rows.length, onclick: () => { const o = overlay('문법 카드'); flashcards(o.body, priority(ids).slice(0, 20), { onExit: o.close, onDone: () => { o.close(); nav('study', 'grammar'); } }); } }, '카드로 외우기'),
-      h('button', { class: 'btn ghost sm', disabled: !rows.length, onclick: () => grammarQuiz(ids) }, '문제 풀기')));
+      h('button', { class: 'btn ghost sm', disabled: !rows.length, onclick: () => grammarQuiz(ids) }, '문제 풀기'),
+      h('button', { class: 'btn ghost sm', onclick: () => groupList('g') }, '⚖️ 비슷한 문법 비교')));
     for (const g of rows) list.append(grammarCard(g, compute));
     if (!rows.length) list.append(h('div', { class: 'empty sm' }, '조건에 맞는 문법이 없어요.'));
   }
@@ -252,5 +266,47 @@ function flashcards(root, ids, opts = {}) {
         res.missed.length ? h('button', { class: 'btn ghost', onclick: () => flashcards(root, res.missed, opts) }, '모른 카드만 다시') : null,
         h('button', { class: 'btn', onclick: () => opts.onDone && opts.onDone(res) }, '완료'))));
   }
+  show();
+}
+
+
+/* ---------- ⚡ 아는 단어 거르기: 알아요/몰라요로 빠르게 나누고, "알아요"는 확인 문제 하나로 익힘 ---------- */
+function quickSort(n = 20) {
+  const pool = allVocab().filter(v => status(v.id) === 'a' && !(App.state.ws || []).includes(v.id));
+  const lv = targetLevel();
+  const cands = balancedPick(pool.filter(v => (v.l || 5) >= lv).map(v => v.id), n);
+  const list = (cands.length >= n ? cands : cands.concat(balancedPick(pool.map(v => v.id).filter(id => !cands.includes(id)), n - cands.length))).map(id => App.byId[id]);
+  const o = overlay('⚡ 아는 단어 거르기');
+  if (!list.length) { o.body.append(h('div', { class: 'empty' }, '거를 단어가 없어요. 학원에서 배운 단어를 모두 확인했어요!'), h('div', { class: 'row end' }, h('button', { class: 'btn', onclick: o.close }, '닫기'))); return; }
+  const know = [], dont = [];
+  let i = 0;
+  const show = () => {
+    o.body.innerHTML = '';
+    if (i >= list.length) return confirmStep();
+    const it = list[i];
+    let revealed = false;
+    const back = h('div', { class: 'qs-back', hidden: true }, h('div', { class: 'wr', lang: 'ja' }, it.r !== it.w ? it.r : ''), h('div', { class: 'wm' }, it.m));
+    o.body.append(h('div', { class: 'qhead' }, h('button', { class: 'x', onclick: o.close }, '✕'), h('div', { class: 'qbar' }, h('div', { style: `width:${i / list.length * 100}%` })), h('span', { class: 'qn' }, `${i + 1} / ${list.length}`)),
+      h('p', { class: 'muted sm' }, '뜻을 바로 떠올릴 수 있으면 "알아요". 알아요라고 한 단어는 끝에 확인 문제 하나를 맞히면 바로 익힘이 돼요.'),
+      h('div', { class: 'qs-card', onclick: () => { revealed = !revealed; back.hidden = !revealed; } }, h('div', { class: 'qs-w jp-serif', lang: 'ja' }, it.w), back, h('small', { class: 'muted' }, '눌러서 뜻 보기')),
+      h('div', { class: 'row qs-btns' },
+        h('button', { class: 'btn ghost', onclick: () => { dont.push(it.id); i++; show(); } }, '✕ 몰라요'),
+        h('button', { class: 'btn', onclick: () => { know.push(it.id); i++; show(); } }, '○ 알아요')));
+  };
+  const confirmStep = () => {
+    // 몰라요 → 이번에 외울 단어 맨 앞으로
+    for (const id of dont.slice().reverse()) { const p = ensureP(id); p.s = 'l'; p.nx = App.today; markDirty('prog:' + chunkOf(id)); wsAddFront(id); }
+    flushSaves();
+    if (!know.length) { o.body.append(h('div', { class: 'empty' }, `몰라요 ${dont.length}개를 "이번에 외울 단어"에 넣었어요.`), h('div', { class: 'row end' }, h('button', { class: 'btn', onclick: () => { o.close(); nav('study', 'vocab'); } }, '완료'))); return; }
+    o.body.append(h('div', { class: 'empty' }, `알아요 ${know.length}개 · 몰라요 ${dont.length}개`, h('br'), h('span', { class: 'muted' }, '알아요라고 한 단어를 확인 문제로 확인할게요. 맞히면 바로 익힘이에요.')),
+      h('div', { class: 'row end' }, h('button', { class: 'btn', onclick: () => {
+        const qs = shuffle(know).map(id => ruleQ(id, /[一-龯]/.test(App.byId[id].w) ? 'read' : 'mean'));
+        runQuiz(o.body, qs, { requeue: false, doneText: '완료', onFinish: (res, list) => {
+          let m = 0;
+          list.forEach((q, k) => { if (q.retry || !res[k]?.ok) return; const id = q.items[0], p = ensureP(id); p.s = 'm'; p.md = App.today; p.cs = Math.max(p.cs || 0, 3); p.ms = 1; p.nx = addDays(App.today, M_INTERVALS[1]); markDirty('prog:' + chunkOf(id)); wsRemove(id); m++; });
+          flushSaves(); toast(`${m}개가 익힘이 됐어요. 틀린 단어는 "이번에 외울 단어"에 들어갔어요.`);
+        }, onDone: () => { o.close(); nav('study', 'vocab'); } });
+      } }, '확인 문제 시작 →')));
+  };
   show();
 }
