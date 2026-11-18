@@ -308,13 +308,12 @@ function recordAnswer(ids, ok, area, qref, sub) {
         // 확인 문제를 맞히면 다음 확인까지 간격을 늘려요
         if (newSession && (!p.nx || p.nx <= t)) { p.ms = Math.min((p.ms || 0) + 1, M_INTERVALS.length - 1); p.nx = addDays(t, M_INTERVALS[p.ms]); }
       } else if ((p.cs || 0) >= 3) {
-        p.s = 'm'; p.ms = 0; p.md = t; p.nx = addDays(t, M_INTERVALS[0]); wsRemove(id);
+        p.s = 'm'; p.ms = 0; p.md = t; p.nx = addDays(t, M_INTERVALS[0]);
       } else {
         p.s = 'l'; p.nx = addDays(t, 1);
       }
     } else {
       p.w = (p.w || 0) + 1; p.c = 0; p.cs = 0; p.ms = 0; p.ls = now; p.s = 'l'; p.nx = addDays(t, 1); p.lw = t;
-      if (App.byId[id]?.t === 'v') wsAddFront(id); // 틀린 단어는 "이번에 외울 단어"로
     }
     p.h = ((p.h || '') + (ok ? 'o' : 'x')).slice(-6);
     p.qa = now; // 마지막으로 문제에 나온 때 (골고루 내기용)
@@ -331,25 +330,14 @@ function recordAnswer(ids, ok, area, qref, sub) {
   }
 }
 
-/* ---------- 이번에 외울 단어 (작업 묶음): 25개를 집중해서 돌리고, 익히면 새 단어로 바꿔요 ---------- */
-const WS_SIZE = 25;
-function wsList() { return (App.state.ws || []).map(canon).filter(id => App.byId[id]?.t === 'v' && ['a', 'l'].includes(status(id))); }
-function wsSave(list) { const v = [...new Set(list)].slice(0, WS_SIZE + 5); if (!same(v, App.state.ws)) { App.state.ws = v; saveState(); } }
-function wsRemove(id) { if ((App.state.ws || []).includes(id)) wsSave(App.state.ws.filter(x => x !== id)); }
-function wsAddFront(id) { wsSave([id, ...(App.state.ws || []).filter(x => x !== id)]); }
-function maintainWS() {
-  let ws = wsList();
-  if (ws.length < WS_SIZE) {
-    const have = new Set(ws);
-    const add = id => { if (ws.length < WS_SIZE && !have.has(id) && !App.alias[id] && App.byId[id]?.t === 'v' && ['a', 'l'].includes(status(id))) { ws.push(id); have.add(id); } };
-    // ① 학습 중(틀렸던 것) ② 최근 수업 단어 ③ 학원에서 배운 단어 (쉬운 레벨부터)
-    allVocab().filter(v => status(v.id) === 'l').sort((a, b) => String(P(b.id)?.lw || '').localeCompare(String(P(a.id)?.lw || ''))).forEach(v => add(v.id));
-    for (const L of App.lessons) for (const id of L.vocabIds || []) add(canon(id));
-    const rest = allVocab().filter(v => status(v.id) === 'a' && !have.has(v.id));
-    rest.sort((a, b) => ((b.l || 0) - (a.l || 0)) || (Math.random() - 0.5)).forEach(v => add(v.id));
-  }
-  wsSave(ws);
-  return ws;
+/* 외울 단어 풀: 학원에서 배움·학습 중인 단어 (익힘은 빼요. 익힘은 확인할 날이 되면 복습으로 나와요) */
+function learnVocab() { return allVocab().filter(v => ['a', 'l'].includes(status(v.id))).map(v => v.id); }
+/* 단어장에서 직접 익힘으로 바꾸기 / 되돌리기 */
+function setMastered(id, on) {
+  const p = ensureP(id);
+  if (on) { p.s = 'm'; p.md = App.today; p.cs = Math.max(p.cs || 0, 3); p.ms = 1; p.nx = addDays(App.today, M_INTERVALS[1]); }
+  else { p.s = 'l'; p.cs = 0; p.ms = 0; p.nx = App.today; }
+  markDirty('prog:' + chunkOf(canon(id)));
 }
 
 /* ---------- stats ---------- */
