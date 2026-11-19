@@ -76,7 +76,7 @@ function buildDay() {
   const unseen = q => !q.seen;
   let lessonQ = last ? bankQuestions((q, b) => b.source === last.id && q.area !== 'l' && unseen(q)) : [];
   if (lessonQ.length < 6) lessonQ = lessonQ.concat(bankQuestions(q => q.area !== 'l' && unseen(q) && !lessonQ.find(x => x.id === q.id)));
-  const drill = shuffle(App.drill.filter(d => (d.ok || 0) < 2 && !d.del)).slice(0, 3).map(d => d.id);
+  const drill = shuffle(App.drill.filter(d => !drillDone(d) && !d.del)).slice(0, 3).map(d => d.id);
   return {
     date: App.today, round: 1, due,
     sec: {
@@ -115,18 +115,20 @@ async function renderToday(v) {
     h('div', { class: 'dday' }, h('b', {}, dd > 0 ? `D-${dd}` : dd === 0 ? 'D-DAY' : '완료'), h('div', {}, nextExam().name, h('br'), md(examDate())))));
   const lr = App.state.autoGen?.lastResult;
   if (lr && lr.date === App.today) v.append(h('div', { class: 'note ' + (lr.ok ? '' : 'warn') }, lr.ok ? (lr.n ? `오늘 ${lr.at}에 새 문제 ${lr.n}개를 만들어 두었어요. 오늘 세트와 시험에 섞여 나와요.` : `오늘 아침 자동 만들기: ${lr.msg || '건너뜀'}`) : `오늘 아침 자동 문제 만들기에 실패했어요 (${lr.msg || ''}). 설정에서 "지금 한 번 만들기"를 눌러 보세요.`));
-  const grid = h('div', { class: 'grid2' }); v.append(grid);
+  // 왼쪽: 오늘의 세트 / 오른쪽: 준비도 + 학습 상태를 위아래로
+  const grid = h('div', { class: 'grid2 home-top' }); v.append(grid);
   const setCard = card('오늘의 세트', '', h('div', { class: 'muted' }, '불러오는 중…'));
-  grid.append(setCard);
+  const rightCol = h('div', { class: 'home-side' });
+  grid.append(setCard, rightCol);
   // readiness
   const acc = areaAccuracy(14);
   const bars = Object.entries(AREA).map(([a, name]) => { const [o, n] = acc[a]; const p = n ? Math.round(o / n * 100) : null; return { a, name, p, n }; });
   const measured = bars.filter(b => b.p != null);
   const weakest = measured.length ? measured.reduce((x, y) => (y.p < x.p ? y : x)) : null;
-  grid.append(card(`N${targetLevel()} 준비도`, '지난 2주 정답률',
+  rightCol.append(card(`N${targetLevel()} 준비도`, '지난 2주 정답률',
     ...bars.map(b => h('div', { class: 'bar' + (weakest && b.a === weakest.a && measured.length > 1 ? ' weak' : '') }, h('div', { class: 'l' }, b.name, h('b', {}, b.p == null ? '기록 없음' : b.p + '%')), h('div', { class: 'tr' }, h('div', { style: `width:${b.p || 0}%` })))),
     weakest && measured.length > 1 ? h('div', { class: 'tip' }, `${weakest.name}이(가) 가장 낮아요. 오늘 세트와 영역 집중 시험으로 보강해 보세요.`) : h('div', { class: 'tip soft' }, '문제를 풀수록 영역별 정답률이 쌓여요. 먼저 시험 탭의 진단 모의고사를 추천해요.')));
-  const g3 = h('div', { class: 'grid2' }); v.append(g3);
+  const g3 = h('div', { class: 'home-bottom' }); v.append(g3);
   // last lesson
   const L = App.lessons[0];
   g3.append(card('최근 수업 노트', L ? md(L.date) : '',
@@ -138,9 +140,9 @@ async function renderToday(v) {
   // status
   const st = levelStats(targetLevel());
   const seg = (k, color) => h('div', { style: `width:${st[k] / st.total * 100}%;background:${color}` });
-  g3.append(card(`N${targetLevel()} 항목 학습 상태`, `전체 ${st.total}개`,
-    h('div', { class: 'stack' }, seg('m', 'var(--ok)'), seg('l', 'var(--amber)'), seg('a', 'var(--blue)'), seg('n', 'var(--empty)')),
-    h('div', { class: 'legend' }, [['m', '익힘', 'var(--ok)'], ['l', '학습 중', 'var(--amber)'], ['a', '학원에서 배움', 'var(--blue)'], ['n', '미학습', 'var(--empty)']].map(([k, n, c]) => h('div', {}, h('i', { style: `background:${c}` }), n, h('b', {}, st[k])))),
+  rightCol.append(card(`N${targetLevel()} 항목 학습 상태`, `전체 ${st.total}개`,
+    h('div', { class: 'stack' }, seg('m', 'var(--ok)'), seg('l', 'var(--amber)'), seg('n', 'var(--empty)')),
+    h('div', { class: 'legend' }, [['m', '익힘', 'var(--ok)'], ['l', '학습 중', 'var(--amber)'], ['n', '미학습', 'var(--empty)']].map(([k, n, c]) => h('div', { style: `--c:${c}` }, h('i', { style: `background:${c}` }), h('span', { class: 'muted sm' }, n), h('b', {}, st[k])))),
     h('p', { class: 'muted sm' }, '서로 다른 시험(2시간 이상 간격)에서 3번 연속 맞히면 "익힘"이 돼요. 익힘 뒤에도 3·7·15·30일 뒤 확인 문제가 나와요')));
   // build set
   const day = await getDay();
@@ -658,8 +660,8 @@ function renderTalk(v, sub = 'drill') {
   v.append(pageHead('회화', '배운 문법 범위 안에서 말하는 연습을 해요', segTabs([['drill', '순간 작문'], ['role', '장면 롤플레이']], sub, k => nav('talk', k))));
   if (sub === 'role') return renderRole(v);
   const wrap = h('div', { class: 'grid2' }); v.append(wrap);
-  const box = h('section', { class: 'card' }); wrap.append(box);
-  drillRunner(box, null, () => nav('talk', 'drill'));
+  const box = h('section', { class: 'card' }); const right = h('div', {}); wrap.append(box, right);
+  drillRunner(box, null, () => nav('talk', 'drill'), null, right);
   const listCard = card('작문 문장 목록', `${App.drill.length}개`);
   const gen = App.sample ? h('button', { class: 'btn ghost sm', onclick: async e => {
     const done = busy(e.currentTarget, '만드는 중…');
@@ -673,9 +675,9 @@ function renderTalk(v, sub = 'drill') {
   const fromLabel = { lesson: '수업', memo: '모임', ai: 'AI', role: '롤플레이' };
   listCard.querySelector('h2').append(h('button', { class: 'btn ghost sm', title: '내 문장과 수업 예문의 오타를 AI로 찾아 고쳐요', onclick: () => typoCheck() }, '🔍 오타 검사'));
   listCard.append(h('p', { class: 'muted sm' }, '문장을 누르면 고치거나 지울 수 있어요.'));
-  for (const d of [...App.drill].filter(d => !d.del).reverse().slice(0, 80)) listCard.append(h('div', { class: 'drow click', onclick: () => editDrill(d, () => nav('talk', 'drill')) }, h('div', {}, h('div', {}, d.ko), h('small', { lang: 'ja', class: 'muted' }, d.jp)), h('span', { class: 'chip ' + ((d.ok || 0) >= 2 ? 'c-green' : 'c-gray') }, (d.ok || 0) >= 2 ? '익힘' : fromLabel[d.from] || '')));
+  for (const d of [...App.drill].filter(d => !d.del).reverse().slice(0, 80)) listCard.append(h('div', { class: 'drow click', onclick: () => editDrill(d, () => nav('talk', 'drill')) }, h('div', {}, h('div', {}, d.ko), h('small', { lang: 'ja', class: 'muted' }, d.jp)), h('div', { class: 'drside' }, drillDone(d) ? null : h('span', { class: 'chip c-gray' }, drillOk(d) ? `${drillOk(d)}/${DRILL_DONE}` + (fromLabel[d.from] ? ' · ' + fromLabel[d.from] : '') : fromLabel[d.from] || ''), drillMToggle(d, () => nav('talk', 'drill')))));
   if (!App.drill.length) listCard.append(h('div', { class: 'muted' }, '수업을 기록하거나 모임 메모를 저장하면 문장이 쌓여요.'));
-  wrap.append(listCard);
+  right.append(listCard);
 }
 /* 작문 문장 고치기·지우기 (지운 문장은 목록과 연습에서 빠져요) */
 function editDrill(d, after) {
@@ -741,11 +743,17 @@ ${list}`, { modelTier: 'quick' });
       } catch (err) { toast('저장하지 못했어요. 다시 시도해 주세요.', 'err'); done(); }
     } }, '체크한 것 반영')));
 }
-function drillRunner(root, ids, onDone, onExit) {
-  let list = ids ? ids.map(id => App.drill.find(d => d.id === id)).filter(d => d && !d.del) : shuffle(App.drill.filter(d => (d.ok || 0) < 2 && !d.del)).slice(0, 5);
+function drillRunner(root, ids, onDone, onExit, lkHost) {
+  let list = ids ? ids.map(id => App.drill.find(d => d.id === id)).filter(d => d && !d.del) : shuffle(App.drill.filter(d => !drillDone(d) && !d.del)).slice(0, 5);
   root.innerHTML = '';
   if (!list.length) { root.append(h('div', { class: 'empty' }, '연습할 작문 문장이 없어요.', h('br'), h('span', { class: 'muted' }, '수업을 기록하거나 "AI로 5문장 추가"를 눌러 주세요.')), ...(onExit ? [h('div', { class: 'row end' }, h('button', { class: 'btn', onclick: onDone }, '완료로 표시'))] : [])); return; }
   let i = 0;
+  // 옆에 단어 찾기 (작문하다 모르는 단어를 한국어·일본어로 바로 검색)
+  const lk = makeLookup();
+  const outer = root; root = h('div', { class: 'drillbox' });
+  if (lkHost) { lk.panel.classList.add('lk-side'); lkHost.prepend(lk.panel); outer.append(root, lk.fab); }
+  else outer.append(h('div', { class: 'qlayout with-lookup' }, root, lk.panel, lk.fab));
+  lk.bindSelection(root);
   const show = () => {
     const d = list[i]; root.innerHTML = '';
     if (onExit) root.append(h('div', { class: 'qhead' }, h('button', { class: 'x', onclick: onExit }, '✕'), h('div', { class: 'qbar' }, h('div', { style: `width:${i / list.length * 100}%` })), h('span', { class: 'qn' }, `${i + 1} / ${list.length}`)));
@@ -754,7 +762,7 @@ function drillRunner(root, ids, onDone, onExit) {
     const out = h('div');
     const chk = h('button', { class: 'btn', onclick: () => check() }, '확인');
     const koEl = h('div', { class: 'drillko' }, d.ko);
-    root.append(koEl, h('button', { class: 'linkbtn sm', onclick: () => editDrill(d, () => { koEl.textContent = d.ko; }) }, '✏️ 문장 고치기'), inp, h('div', { class: 'row end' }, h('button', { class: 'btn ghost', onclick: () => reveal(null) }, '모르겠어요'), chk), out);
+    root.append(koEl, h('div', { class: 'row tight gap' }, h('button', { class: 'linkbtn sm', onclick: () => editDrill(d, () => { koEl.textContent = d.ko; }) }, '✏️ 문장 고치기'), h('button', { class: 'linkbtn sm', title: '이미 아는 문장이면 출제에서 빼요', onclick: () => { setDrillDone(d, true); toast('익힘으로 바꿨어요. 이 문장은 이제 출제에서 빠져요.'); if (i < list.length - 1) { i++; show(); } else { flushSaves(); onDone && onDone(); } } }, '✓ 이미 알아요 (익힘)')), inp, h('div', { class: 'row end' }, h('button', { class: 'btn ghost', onclick: () => reveal(null) }, '모르겠어요'), chk), out);
     setTimeout(() => inp.focus(), 50);
     async function check() {
       const a = inp.value.trim(); if (!a) { reveal(null); return; }
@@ -777,7 +785,7 @@ function drillRunner(root, ids, onDone, onExit) {
         r && !ok && r.fixed ? h('div', { class: 'big', lang: 'ja' }, r.fixed) : null,
         r?.why ? h('div', {}, r.why) : null,
         h('div', { class: 'model' }, '모범 답안: ', jp(d.jp), h('button', { class: 'say', onclick: () => TTS.speak([{ s: 'N', t: d.jp }]) }, '🔈'))));
-      const mark = good => { d.ok = good ? (d.ok || 0) + 1 : 0; d.ng = good ? (d.ng || 0) : (d.ng || 0) + 1; d.last = App.today; markDirty('drill'); if (i < list.length - 1) { i++; show(); } else { flushSaves(); onDone && onDone(); } };
+      const mark = good => { const before = drillOk(d); d.okt = before + (good ? 1 : 0); d.ok = good ? (d.ok || 0) + 1 : 0; if (good && d.okt === DRILL_DONE) toast('이 문장은 3번 맞혀서 익힘이 됐어요. 이제 출제에서 빠져요.'); d.ng = good ? (d.ng || 0) : (d.ng || 0) + 1; d.last = App.today; markDirty('drill'); if (i < list.length - 1) { i++; show(); } else { flushSaves(); onDone && onDone(); } };
       out.append(h('div', { class: 'row end' }, ok === null ? h('button', { class: 'btn ghost', onclick: () => mark(false) }, '✕ 못 했어요') : null, ok === null ? h('button', { class: 'btn', onclick: () => mark(true) }, '○ 맞았어요') : h('button', { class: 'btn', onclick: () => mark(ok) }, i < list.length - 1 ? '다음 →' : '완료')));
     }
   };
@@ -789,6 +797,8 @@ function renderRole(v) {
   cols.append(chatCard, side);
   const sceneCard = card('워홀 장면', '단계별 해제'); side.append(sceneCard);
   const usedCard = card('이번 대화에서 쓴 문법'); side.append(usedCard);
+  // 대화하다 모르는 단어 찾기 (상대 말을 드래그하거나 직접 검색)
+  const lk = makeLookup(); lk.panel.classList.add('lk-side'); side.append(lk.panel); v.append(lk.fab); lk.bindSelection(chatCard);
   const lv = targetLevel();
   let current = null, turns = [], fixes = [], used = {};
   // 장면을 바꾸면 session이 바뀌어서, 이전 장면의 늦게 온 답이 새 장면에 섞이지 않아요
@@ -803,6 +813,7 @@ function renderRole(v) {
   async function open(s) {
     const my = ++session; waiting = false;
     current = s; fixes = []; used = {}; turns = [];
+    side.prepend(lk.panel); // 대화 중에는 단어 찾기를 오른쪽 맨 위로
     $$('.sc', sceneCard).forEach((b, i) => b.classList.toggle('on', SCENES[i] === s));
     let saved = null;
     if (App.db) { const snap = await App.db.doc('talk/' + s.id).get().catch(() => null); if (snap?.exists) saved = JSON.parse(JSON.stringify(snap.data())); }
@@ -924,15 +935,17 @@ function renderStats(v) {
 }
 function itemDetail(it, after) {
   const p = P(it.id) || {};
-  const sel = h('select', {}, Object.entries(STATUS).map(([k, n]) => h('option', { value: k, selected: k === (p.s || 'n') }, n)));
+  const cur = status(it.id);
+  // 익힘은 아래 버튼으로만 (상태 목록에는 미학습·학습 중 등만)
+  const sel = h('select', {}, [['n', '미학습'], ['l', '학습 중']].map(([k, n]) => h('option', { value: k, selected: k === (cur === 'n' ? 'n' : 'l') }, n)));
   const ex = it.t === 'v' ? App.EX.filter(e => e.j.includes(it.w)).slice(0, 4) : [];
   const m = modal(h('div', {},
     h('h2', { class: 'jp-serif', lang: 'ja' }, itemLabel(it)), h('p', { class: 'muted' }, [it.r, it.on && '음 ' + it.on, it.kun && '훈 ' + it.kun].filter(Boolean).join(' · ')),
     h('div', { class: 'big' }, it.m), it.f ? h('div', { class: 'box' }, it.f) : null, it.ej ? h('div', { class: 'ex' }, jp(it.ej), h('small', {}, it.ek)) : null,
     it.n ? h('p', { class: 'muted' }, it.n) : null, ...ex.map(e => h('div', { class: 'ex' }, jp(e.j), h('small', {}, e.k))),
     h('div', { class: 'kv' }, h('span', {}, '정답 / 오답'), h('b', {}, `${p.r || 0} / ${p.w || 0}`)), h('div', { class: 'kv' }, h('span', {}, '연속 정답일'), h('b', {}, String(p.c || 0))),
-    h('div', { class: 'row' }, h('label', {}, '상태 직접 바꾸기 ', sel), h('button', { class: 'btn sm', onclick: () => { const q = ensureP(it.id); q.s = sel.value; if (sel.value === 'm') q.c = Math.max(q.c || 0, 3); markDirty('prog:' + chunkOf(it.id)); flushSaves(); m.close(); after && after(); } }, '저장'),
-      h('button', { class: 'btn ghost sm', onclick: () => TTS.speak([{ s: 'N', t: it.t === 'v' ? it.w : it.t === 'k' ? it.c : (it.ej || '') }]) }, '🔈 듣기'))));
+    h('div', { class: 'stbox' }, h('div', { class: 'stlab' }, '상태 직접 바꾸기'), h('div', { class: 'strow' }, sel, h('button', { class: 'btn sm', onclick: () => { const q = ensureP(it.id); q.s = sel.value; if (sel.value === 'n') { q.cs = 0; q.ms = 0; } q.nx = App.today; markDirty('prog:' + chunkOf(it.id)); flushSaves(); m.close(); after && after(); } }, '저장'),
+      h('button', { class: 'btn ghost sm', onclick: () => TTS.speak([{ s: 'N', t: it.t === 'v' ? it.w : it.t === 'k' ? it.c : (it.ej || '') }]) }, '🔈 듣기')))));
 }
 function weeklyChart() {
   const W = weeklyAccuracy(4);
@@ -1091,6 +1104,7 @@ function renderSettings(v) {
     } }, unchk.length ? `검수 안 한 문제 ${unchk.length}개 검수` : '모두 검수했어요');
     var bankBox = h('div', { class: 'subbox' }, h('h3', { class: 'mini' }, '문제 은행 검수'), h('p', { class: 'muted sm' }, 'AI가 만든 문제 중 문장이 틀어지거나 정답이 둘인 문제를 찾아 고치거나 빼요. 새로 만드는 문제는 자동으로 검수돼요.'), info, h('div', { class: 'row end' }, go), prog);
   }
+  right.append(voiceCard());
   right.append(card('AI 연결', '', h('p', { class: 'muted sm' }, '문제 만들기가 안 될 때 눌러 보세요. 키·함수·모델 중 어디가 문제인지 보여줘요.'), h('div', { class: 'row end' }, tbtn), out, bankBox));
 
   // 6. 백업 · 로그아웃
@@ -1107,4 +1121,59 @@ function renderSettings(v) {
       h('button', { class: 'btn ghost sm', onclick: async e => { const done = busy(e.currentTarget, '내보내는 중…'); try { await flushSaves(); const rows = await App.db.exportAll(); const blob = new Blob([JSON.stringify({ app: 'jp-study', at: new Date().toISOString(), docs: rows })], { type: 'application/json' }); const a = h('a', { href: URL.createObjectURL(blob), download: `공부방-백업-${App.today}.json` }); document.body.append(a); a.click(); a.remove(); App.state.lastBackup = App.today; saveState(); } catch { toast('내보내기에 실패했어요.', 'err'); } finally { done(); } } }, '백업 내려받기'),
       h('button', { class: 'btn ghost sm', onclick: () => impIn.click() }, '백업 불러오기'), impIn,
       App.signOut ? h('button', { class: 'btn ghost sm', onclick: () => App.signOut() }, '로그아웃') : null)));
+}
+
+/* 설정 → 음성 설정: 청해 AI 음성(Gemini) / 기본 음성(이 기기) */
+function voiceCard() {
+  const pref = voicePrefs();
+  const setPref = (k, v) => { App.state.voice = Object.assign({}, App.state.voice || {}, { [k]: v }); saveState(); flushSaves(); };
+  const optBox = h('div', { class: 'vopt' });
+  const drawOpt = () => {
+    optBox.innerHTML = '';
+    const cur = voicePrefs().mode;
+    optBox.append(...[['ai', '🎧 AI 음성 (Gemini)', '실제 시험처럼 남녀가 대화해요. 한 번 만들면 저장해서 다시 써요.'], ['basic', '🔈 기본 음성', '이 기기에 들어 있는 음성. 무료, 바로 재생.']].map(([k, t, d]) =>
+      h('button', { class: cur === k ? 'on' : '', onclick: () => { setPref('mode', k); drawOpt(); } }, h('b', {}, t), h('small', {}, d))));
+  };
+  drawOpt();
+  const speed = h('select', { onchange: () => { setPref('speed', +speed.value); toast('말하기 속도를 바꿨어요. 새로 듣는 문제부터 적용돼요.'); } },
+    [[5, 'N5 · 천천히 또박또박'], [4, 'N4 · 조금 천천히'], [3, 'N3 · 자연스러운 대화 속도 (기본)'], [2, 'N2 · 보통 회화 속도']].map(([k, n]) => h('option', { value: k, selected: k === pref.speed }, n)));
+  const stat = h('div', { class: 'vstat' }, h('div', { class: 'muted sm' }, '사용량 불러오는 중…'));
+  audioUsage().then(u => { stat.innerHTML = ''; stat.append(...[['이번 달 만든 음성', u.n + '개'], ['길이', u.sec > 0 && u.sec < 60 ? '1분 미만' : '약 ' + Math.round(u.sec / 60) + '분'], ['예상 비용', '약 $' + u.cost.toFixed(2)]].map(([a, b]) => h('div', {}, h('small', {}, a), h('b', {}, b)))); }).catch(() => { stat.innerHTML = ''; });
+  const res = h('div', { class: 'muted sm' });
+  const test = h('button', { class: 'btn ghost sm', onclick: async () => {
+    if (!App.sample?.tts) { res.textContent = 'AI 연결이 아직 설정되지 않았어요.'; return; }
+    const done = busy(test, '음성 만드는 중…');
+    try {
+      const r = await App.sample.tts([{ s: '女', t: 'すみません、駅までの道を教えてください。' }, { s: '男', t: 'この道をまっすぐ行って、二つ目の角を右に曲がってください。' }], { save: false, style: ttsStyle() });
+      const a = new Audio('data:audio/wav;base64,' + r.audio); TTS.stop(); TTS.cur = a; a.play();
+      res.textContent = `✓ 성공 · ${r.model} · 목소리 ${(r.voices || []).join(' / ')} · ${r.sec}초`;
+    } catch (e) { res.textContent = (e?.code === 'billing' ? '✕ ' : '✕ ') + aiErrorText(e); }
+    finally { done(); }
+  } }, '▶ AI 음성 테스트');
+  // 기본 음성 고르기
+  const vsel = male => {
+    const list = TTS.ranked(male);
+    const cur = TTS.pick(male);
+    const sel = h('select', { onchange: () => setPref(male ? 'm' : 'f', sel.value) }, list.length ? list.map((v, i) => h('option', { value: v.name, selected: cur && v.name === cur.name }, v.name + (i === 0 && TTS.score(v) >= 4 ? ' ★추천' : ''))) : [h('option', { value: '' }, '이 기기에 일본어 음성이 없어요')]);
+    const pv = h('button', { class: 'btn ghost sm', onclick: () => TTS.speak([{ s: male ? '男' : '女', t: male ? 'この道をまっすぐ行ってください。' : 'すみません、駅はどこですか。' }]) }, '▶ 미리 듣기');
+    return h('div', { class: 'vrow' }, h('span', {}, male ? '남자' : '여자'), sel, pv);
+  };
+  const natural = TTS.voices.some(v => TTS.score(v) >= 4);
+  return card('음성 설정', '청해 · 단어 듣기', h('div', { class: 'vset' },
+    h('div', { class: 'vlab' }, '① 청해 문제 음성'), optBox,
+    h('div', { class: 'vlab' }, '말하기 속도 (AI 음성)'), speed,
+    stat, h('div', { class: 'row end' }, test), res,
+    h('div', { class: 'vlab' }, '② 기본 음성 (단어 🔈 듣기 · AI 음성이 안 될 때)'), vsel(false), vsel(true),
+    h('p', { class: 'muted sm' }, natural ? '★ 자연스러운 음성을 자동으로 먼저 골라요.' : '이 브라우저에는 자연스러운 일본어 음성이 적어요. 엣지(Edge) 브라우저에서 열면 Nanami·Keita 같은 자연스러운 음성을 무료로 쓸 수 있어요.')));
+}
+
+/* 작문 문장 익힘 표시: 켜면 출제에서 빠지고, 끄면 다시 나와요 */
+function setDrillDone(d, on) {
+  if (on) { d.okt = Math.max(drillOk(d), DRILL_DONE); d.mk = 1; }
+  else { d.okt = 0; d.ok = 0; delete d.mk; }
+  d.last = App.today; markDirty('drill'); flushSaves();
+}
+function drillMToggle(d, after) {
+  const on = drillDone(d);
+  return h('span', { class: 'mtoggle' + (on ? ' on' : ''), role: 'button', title: on ? '익힘 해제 (다시 출제)' : '아는 문장 → 익힘으로 (출제에서 빼기)', onclick: e => { e.stopPropagation(); setDrillDone(d, !on); toast(on ? '익힘을 해제했어요. 다시 출제돼요.' : '익힘으로 바꿨어요. 출제에서 빠져요.'); after && after(); } }, on ? '✓ 익힘' : '익힘으로');
 }

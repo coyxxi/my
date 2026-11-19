@@ -1,5 +1,9 @@
 /* 일본어 공부방 · core: data, progress, db, AI helpers */
 'use strict';
+// 화면에 "null"·"undefined"가 글자로 찍히지 않게: 빈 값은 그냥 건너뛰어요
+for (const P of [Element.prototype, DocumentFragment.prototype]) for (const fn of ['append', 'prepend']) {
+  const orig = P[fn]; P[fn] = function (...a) { return orig.apply(this, a.filter(x => x != null && x !== false)); };
+}
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -26,8 +30,8 @@ const uid = (p = '') => p + Date.now().toString(36) + Math.random().toString(36)
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 const AREA = { v: '문자·어휘', g: '문법', r: '독해', l: '청해' };
-const STATUS = { n: '미학습', a: '학원에서 배움', l: '학습 중', m: '익힘' };
-const STATUS_CLS = { n: 'c-gray', a: 'c-blue', l: 'c-amber', m: 'c-green' };
+const STATUS = { n: '미학습', l: '학습 중', m: '익힘' };
+const STATUS_CLS = { n: 'c-gray', a: 'c-amber', l: 'c-amber', m: 'c-green' };
 const INTERVALS = [1, 2, 4, 7, 15, 30];
 
 const App = {
@@ -139,7 +143,8 @@ const chunkOf = id => id.split('-')[0];
 
 /* ---------- progress ---------- */
 function P(id) { id = canon(id); const c = App.prog[chunkOf(id)]; return (c && c[id]) || null; }
-function status(id) { return P(id)?.s || 'n'; }
+// 학원에서 배움(a)은 화면에서 학습 중(l)으로 합쳐 보여요 (저장된 값은 그대로)
+function status(id) { const s = P(id)?.s || 'n'; return s === 'a' ? 'l' : s; }
 function ensureP(id) {
   id = canon(id);
   const k = chunkOf(id);
@@ -229,12 +234,16 @@ async function flushWrong() {
   App.wrong = clone(merged.list).concat(extra);
   App.base.wrongLen = merged.list.length;
 }
+/* 순간 작문: 연속이든 띄엄띄엄이든 모두 3번 맞히면 '익힘' → 출제에서 빠져요 (okt = 맞힌 횟수 합계, 예전 기록은 ok로 계산) */
+const DRILL_DONE = 3;
+function drillOk(d) { return d.okt ?? d.ok ?? 0; }
+function drillDone(d) { return drillOk(d) >= DRILL_DONE; }
 /* 순간 작문 목록이 400개를 넘으면: 두 번 맞힌(외운) 문장 중 오래된 것부터 정리, 못 맞힌 문장은 남겨요 */
 function trimDrill(list, max = 400) {
   if (list.length <= max) return list;
   let over = list.length - max;
   const drop = new Set();
-  for (const d of list) { if (over <= 0) break; if ((d.ok || 0) >= 2) { drop.add(d.id); over--; } }
+  for (const d of list) { if (over <= 0) break; if (drillDone(d)) { drop.add(d.id); over--; } }
   const kept = list.filter(d => !drop.has(d.id));
   return kept.length > max * 1.5 ? kept.slice(-max * 1.5) : kept; // 그래도 너무 많으면(600개 초과) 오래된 것부터
 }
@@ -333,6 +342,14 @@ function recordAnswer(ids, ok, area, qref, sub) {
 /* 외울 단어 풀: 학원에서 배움·학습 중인 단어 (익힘은 빼요. 익힘은 확인할 날이 되면 복습으로 나와요) */
 function learnVocab() { return allVocab().filter(v => ['a', 'l'].includes(status(v.id))).map(v => v.id); }
 /* 단어장에서 직접 익힘으로 바꾸기 / 되돌리기 */
+/* 카드에서 바로 상태 바꾸기: n(미학습) · l(학습 중) · m(익힘) */
+function setStatus(id, to) {
+  if (to === 'm') return setMastered(id, true);
+  const p = ensureP(id);
+  if (to === 'l') { if (p.s === 'm') { p.cs = 0; p.ms = 0; } p.s = 'l'; p.nx = App.today; }
+  else { p.s = 'n'; p.cs = 0; p.ms = 0; delete p.nx; }
+  markDirty('prog:' + chunkOf(canon(id)));
+}
 function setMastered(id, on) {
   const p = ensureP(id);
   if (on) { p.s = 'm'; p.md = App.today; p.cs = Math.max(p.cs || 0, 3); p.ms = 1; p.nx = addDays(App.today, M_INTERVALS[1]); }
@@ -422,6 +439,7 @@ function aiErrorText(e) {
   if (c === 'invalid_json') return 'AI 응답을 읽지 못했어요. 다시 시도해 주세요. (설정 → AI 연결 테스트에서 원문을 볼 수 있어요)';
   if (c === 'truncated') return 'AI 답이 너무 길어 중간에 잘렸어요. 문항 수를 줄여 다시 시도해 주세요.';
   if (c === 'empty') return 'AI가 쓸 수 있는 문제를 만들지 못했어요. 다시 시도해 주세요.';
+  if (c === 'billing') return 'AI 음성은 Gemini 결제(선불 충전)가 필요해요. AI Studio → 설정 → Billing에서 충전하면 바로 쓸 수 있어요. 그동안은 기본 음성으로 들려줘요.';
   if (c === 'cancelled') return '취소했어요.';
   if (c === 'images_unavailable' || c === 'image_rejected') return '이 사진은 AI에 보낼 수 없어요. 다른 사진으로 해 주세요.';
   return 'AI 요청에 실패했어요 (' + (c || 'error') + ').';
@@ -651,6 +669,7 @@ ${qSpec(level)}`;
 
 /* ---------- 문제 검수: 정답을 빈칸에 넣으면 완전한 문장이 되는지, 정답이 하나뿐인지, 해설이 맞는지 ---------- */
 async function verifyQs(qs, level = 5, signal) {
+  qs.forEach(ruleFixQ);
   if (!qs.length || !App.sample) return qs;
   const out = [];
   for (let b = 0; b < qs.length; b += 8) {
@@ -688,10 +707,29 @@ function applyQFix(q, fix) {
   if (fix.prompt || fix.choices) { delete n.ko; delete n.cko; } // 문장이 바뀌면 뜻 풀이는 다시 받아요
   return n;
 }
+/* 규칙으로 바로 고치는 흔한 오류: 「（　）でください」에 ない형 어간(撮ら 등)이 정답이면 빈칸 뒤에 ない가 빠진 것 */
+const BLANK_NAIDE = /([（(][\s　_＿]*[）)])(\s*)(でください|で下さい|でほしい|でくれ|でね)/;
+function ruleFixQ(q) {
+  if (!q || !q.prompt || !Array.isArray(q.choices) || q.ans == null) return false;
+  const m = String(q.prompt).match(BLANK_NAIDE); if (!m) return false;
+  const a = plainJa(q.choices[q.ans]).trim(); if (!a || /(ない|ず|ん|い)$/.test(a)) return false;
+  const aDan = /[あかがさざただなはばぱまやらわ]$/.test(a);
+  if (!aDan && !/ない/.test(String(q.expl || ''))) return false;
+  q.prompt = String(q.prompt).replace(BLANK_NAIDE, (all, b, sp, tail) => b + sp + 'ない' + tail);
+  delete q.ko; delete q.cko; q.fixed = q.fixed || '빈칸 뒤에 ない가 빠져 있어서 고쳤어요'; return true;
+}
+/* 저장된 모든 문제에 규칙 수정 적용 (기록·진도는 그대로) */
+function ruleFixBanks() {
+  let n = 0;
+  for (const b of App.banks) for (const q of b.qs || []) if (ruleFixQ(q)) { b._dirty = true; n++; }
+  if (n) scheduleBankSave();
+  return n;
+}
 /* 문제 은행 검수: 아직 검수하지 않은 문제를 8개씩 확인해서 고치거나 빼요 */
-async function checkBank({ onProgress, all = false } = {}) {
-  const targets = [];
+async function checkBank({ onProgress, all = false, limit = 0 } = {}) {
+  let targets = [];
   for (const b of App.banks) for (const q of b.qs || []) if (!q.bad && (all || !q.chk)) targets.push([b, q]);
+  if (limit) targets = targets.slice(-limit); // 최근 문제부터
   let fixed = 0, dropped = 0, done = 0;
   for (let i = 0; i < targets.length; i += 8) {
     const part = targets.slice(i, i + 8);
@@ -771,20 +809,28 @@ function ruleQ(id, mode) {
 
 /* ---------- TTS ---------- */
 const TTS = {
-  voices: [], ready: false,
+  voices: [], ready: false, cur: null,
   init() {
     if (!('speechSynthesis' in window)) return;
     const load = () => { this.voices = speechSynthesis.getVoices().filter(v => /ja/i.test(v.lang)); this.ready = true; };
     load(); speechSynthesis.onvoiceschanged = load;
   },
   available() { return 'speechSynthesis' in window; },
-  stop() { try { speechSynthesis.cancel(); } catch { } },
+  stop() { try { speechSynthesis.cancel(); } catch { } try { if (this.cur) { this.cur.pause(); this.cur = null; } } catch { } },
+  // 자연스러운 음성(Natural·Online·Neural·Google)을 먼저 골라요. 설정에서 직접 고른 목소리가 있으면 그걸로
+  score(v) { const n = v.name || ''; return (/natural|online|neural/i.test(n) ? 4 : 0) + (/google/i.test(n) ? 2 : 0) + (/nanami|keita|aoi|daichi|mayu|naoki|shiori/i.test(n) ? 1 : 0) + (v.localService === false ? 1 : 0); },
+  isMale(v) { return /otoya|ichiro|keita|daichi|naoki|male|男/i.test(v.name || '') && !/female/i.test(v.name || ''); },
+  ranked(male) { return this.voices.filter(v => male ? this.isMale(v) : !this.isMale(v)).sort((a, b) => this.score(b) - this.score(a)); },
+  pick(male) {
+    const want = (App.state?.voice || {})[male ? 'm' : 'f'];
+    return (want && this.voices.find(v => v.name === want)) || this.ranked(male)[0] || null;
+  },
   speak(lines, rate = 1, onDone) {
     this.stop();
     if (!this.available()) { onDone && onDone(false); return; }
     const vs = this.voices;
-    const female = vs.find(v => /kyoko|haruka|nanami|ayumi|female|女/i.test(v.name)) || vs[0];
-    const male = vs.find(v => /otoya|ichiro|keita|male|男/i.test(v.name) && v !== female) || vs[1] || vs[0];
+    const female = this.pick(false) || vs[0];
+    const male = this.pick(true) || vs.find(v => v !== female) || vs[0];
     let i = 0;
     const next = () => {
       if (i >= lines.length) { onDone && onDone(true); return; }
@@ -802,6 +848,47 @@ const TTS = {
     next();
   },
 };
+
+/* ---------- 청해 AI 음성 (Gemini TTS) ----------
+   처음 재생할 때 한 번만 만들고, 저장소에 보관해서 다음부터는 바로 재생해요. (state/audio 에 목록) */
+const VOICE_SPEED = {
+  5: 'JLPT N5の聴解問題のように、ゆっくり、はっきりと話す',
+  4: 'JLPT N4の聴解問題のように、少しゆっくり、はっきりと話す',
+  3: 'JLPT N3の聴解問題のように、自然な会話の速さで、はっきりと話す',
+  2: 'JLPT N2の聴解問題のように、ふつうの会話の速さで自然に話す',
+};
+function voicePrefs() { return Object.assign({ mode: 'ai', speed: 3 }, App.state?.voice || {}); }
+function ttsStyle() { return VOICE_SPEED[voicePrefs().speed] || VOICE_SPEED[3]; }
+function hashStr(str) { let a = 0x811c9dc5, b = 5381; for (const ch of str) { const x = ch.codePointAt(0); a = Math.imul(a ^ x, 16777619) >>> 0; b = (Math.imul(b, 33) ^ x) >>> 0; } return a.toString(36) + b.toString(36); }
+function ttsKey(script) { return 'v1n' + voicePrefs().speed + '_' + hashStr(JSON.stringify(script.map(l => [l.s, plainJa(l.t)]))); }
+let audioIdxP = null;
+function audioIndex() {
+  if (!audioIdxP) audioIdxP = App.db ? App.db.doc('state/audio').get().then(sn => (sn.exists ? (sn.data().items || {}) : {})).catch(() => { audioIdxP = null; return {}; }) : Promise.resolve({});
+  return audioIdxP;
+}
+const audioMaking = {};
+async function aiAudioFor(script) {
+  if (!App.sample?.tts) throw { code: 'not_granted' };
+  const key = ttsKey(script);
+  const idx = await audioIndex();
+  let rec = idx[key], fresh = false;
+  if (!rec) {
+    // 같은 문제를 동시에 두 번 만들지 않게
+    if (!audioMaking[key]) audioMaking[key] = App.sample.tts(script.map(l => ({ s: l.s, t: plainJa(l.t) })), { key, style: ttsStyle() })
+      .then(r => { const x = { p: r.path, s: r.sec || 0, at: App.today, m: r.model || '' }; idx[key] = x; mergeWrite('state/audio', cur => ({ items: Object.assign({}, cur?.items || {}, { [key]: x }) })).catch(() => {}); return x; })
+      .finally(() => { delete audioMaking[key]; });
+    rec = await audioMaking[key]; fresh = true;
+  }
+  return { url: await App.sample.audioUrl(rec.p), fresh, sec: rec.s };
+}
+async function audioUsage(month) {
+  month = month || App.today.slice(0, 7);
+  const idx = await audioIndex();
+  const list = Object.values(idx).filter(r => String(r.at || '').startsWith(month));
+  const sec = list.reduce((a, r) => a + (r.s || 0), 0);
+  const rate = App.today < '2027-01-01' ? 0.0135 : 0.027; // 1분당 대략 (2027년부터 2배)
+  return { n: list.length, sec, cost: sec / 60 * rate, total: Object.keys(idx).length };
+}
 
 /* ---------- db load ---------- */
 async function loadAll() {
